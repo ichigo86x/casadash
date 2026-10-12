@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
+	import { localDateString } from '$lib/dates';
 	import { enhance } from '$app/forms';
 	import { onMount } from 'svelte';
 	import { slide } from 'svelte/transition';
@@ -144,7 +145,7 @@
     // Pre-fill bulk-settle from date: last settled CC date, or first of last month
     let ccSettleFromDate = $state(data.lastSettledDate || '');
     // Pre-fill bulk-settle to date: today
-    let ccSettleToDate = $state(new Date().toISOString().split('T')[0]);
+    let ccSettleToDate = $state(localDateString());
     $effect(() => {
         if (!ccSettleFromDate) {
             const today = new Date();
@@ -174,6 +175,7 @@
 		if (!chartCanvas) return;
 
 		const ctx = chartCanvas.getContext('2d');
+		if (!ctx) return;
 		
         Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim() || '#e2e8f0';
         Chart.defaults.borderColor = getComputedStyle(document.documentElement).getPropertyValue('--border-color').trim() || 'rgba(255, 255, 255, 0.1)';
@@ -376,7 +378,7 @@
 					</div>
 					<div class="form-group">
 						<label for="date">Data</label>
-						<input type="date" id="date" name="date" required value={new Date().toISOString().split('T')[0]}>
+						<input type="date" id="date" name="date" required value={localDateString()}>
 					</div>
 				</div>
 

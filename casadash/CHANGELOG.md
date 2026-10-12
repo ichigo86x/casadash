@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.0
+
+### Correzioni
+- Movimenti ricorrenti a fine mese: il 31 gennaio + 1 mese ora dà il 28/29 febbraio. Prima diventava il 3 marzo.
+- Movimenti ricorrenti saltati, ad esempio con l'app spenta per settimane: ora vengono registrati tutti, uno per ogni scadenza. Prima ne veniva creato uno all'ora.
+- Una frequenza non valida non genera più lo stesso movimento ogni ora.
+- Date calcolate nel fuso orario locale invece che in UTC:
+  - data predefinita di un nuovo movimento;
+  - grafico degli ultimi 30 giorni;
+  - intervallo predefinito dei report, che prima partiva dall'ultimo giorno del mese precedente;
+  - nomi dei file di backup e CSV.
+
+### Manutenzione
+- Rimossi file non usati (`src/lib/categories.ts`, `src/lib/server/db/seed.ts`). Le categorie predefinite sono definite solo in `seed.js`.
+- Nessun errore di type-check (`npm run check`).
+
 ## 1.1.0
 
 ### Sicurezza

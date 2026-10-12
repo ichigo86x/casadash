@@ -1,4 +1,5 @@
 import { db } from '$lib/server/db';
+import { localDateString } from '$lib/dates';
 import { transactions, budgets, categories, users } from '$lib/server/db/schema';
 import { desc, eq, and, sql, isNull } from 'drizzle-orm';
 import { fail } from '@sveltejs/kit';
@@ -28,7 +29,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	for (let i = 29; i >= 0; i--) {
 		const d = new Date(today);
 		d.setDate(d.getDate() - i);
-		trendData[d.toISOString().split('T')[0]] = { income: 0, expense: 0 };
+		trendData[localDateString(d)] = { income: 0, expense: 0 };
 	}
 
 	const uniqueDescriptions = new Set<string>();

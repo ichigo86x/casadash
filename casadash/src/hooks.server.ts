@@ -4,6 +4,7 @@ import { lte, eq, and } from 'drizzle-orm';
 import { error, redirect, type Handle, type HandleServerError } from '@sveltejs/kit';
 import { SESSION_COOKIE, purgeExpiredSessions, validateSession } from '$lib/server/auth';
 import { appUrl, ingressBase } from '$lib/server/ingress';
+import { localDateString, nextOccurrence } from '$lib/dates';
 
 let lastRun = 0;
 
@@ -51,7 +52,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 };
 
 async function processRecurringTransactions() {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = localDateString();
     
     // Find all active subscriptions and recurring tasks whose nextDate has arrived or already passed
     const dueJobs = await db.select().from(recurringTransactions).where(
@@ -67,35 +68,28 @@ async function processRecurringTransactions() {
         try { parsedTags = JSON.parse(job.tags || '[]'); } catch(e) {}
         if (!parsedTags.includes('Ricorrente')) parsedTags.push('Ricorrente');
 
-        // Automatically inject the transaction as if the user did it themselves
-        await db.insert(transactions).values({
-            type: job.type,
-            amount: job.amount,
-            description: job.description,
-            category: job.category,
-            paymentMethod: job.paymentMethod,
-            tags: JSON.stringify(parsedTags),
-            date: job.nextDate, // Lock the date to the exact day it was supposed to trigger
-            createdBy: job.createdBy
-        });
-        
-        // Advance the calendar for the next billing cycle
-        const nextDateObj = new Date(job.nextDate);
-        if (job.frequency === 'monthly') {
-            nextDateObj.setMonth(nextDateObj.getMonth() + 1);
-        } else if (job.frequency === 'yearly') {
-            nextDateObj.setFullYear(nextDateObj.getFullYear() + 1);
-        } else if (job.frequency === 'weekly') {
-            nextDateObj.setDate(nextDateObj.getDate() + 7);
-        } else if (job.frequency === 'daily') {
-            nextDateObj.setDate(nextDateObj.getDate() + 1);
+        // Catch up on every missed occurrence (e.g. the server was off for weeks),
+        // bounded so a corrupted date can never loop forever
+        let nextDateStr = job.nextDate;
+        for (let i = 0; i < 1000 && nextDateStr <= todayStr; i++) {
+            // Automatically inject the transaction as if the user did it themselves
+            await db.insert(transactions).values({
+                type: job.type,
+                amount: job.amount,
+                description: job.description,
+                category: job.category,
+                paymentMethod: job.paymentMethod,
+                tags: JSON.stringify(parsedTags),
+                date: nextDateStr, // Lock the date to the exact day it was supposed to trigger
+                createdBy: job.createdBy
+            });
+            // Advance the calendar for the next billing cycle
+            nextDateStr = nextOccurrence(nextDateStr, job.frequency);
         }
-
-        const nextDateStr = nextDateObj.toISOString().split('T')[0];
         
         // Save the new date for the next automated iteration
         await db.update(recurringTransactions).set({ nextDate: nextDateStr }).where(eq(recurringTransactions.id, job.id));
-        		console.log(`[CRON] Processato task #${job.id} (${job.description}). Prossima esecuzione: ${nextDateStr}`);
+        console.log(`[CRON] Processato task #${job.id} (${job.description}). Prossima esecuzione: ${nextDateStr}`);
     }
 }
 

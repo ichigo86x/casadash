@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { localDateString } from '$lib/dates';
     import { enhance } from '$app/forms';
     import { fly } from 'svelte/transition';
 
@@ -129,7 +130,7 @@
                 </div>
                 <div class="form-group">
                     <label>Data Prossima Esecuzione</label>
-                    <input type="date" name="next_date" required min={editingJob ? '' : new Date().toISOString().split('T')[0]} value={editingJob ? editingJob.nextDate : ''}>
+                    <input type="date" name="next_date" required min={editingJob ? '' : localDateString()} value={editingJob ? editingJob.nextDate : ''}>
                 </div>
             </div>
 

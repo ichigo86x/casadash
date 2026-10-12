@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
+	import { localDateString } from '$lib/dates';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
@@ -159,7 +160,7 @@
 		
 		const link = document.createElement('a');
 		link.href = url;
-		link.download = `casadash_report_${new Date().toISOString().split('T')[0]}.csv`;
+		link.download = `casadash_report_${localDateString()}.csv`;
 		document.body.appendChild(link);
 		link.click();
 		document.body.removeChild(link);

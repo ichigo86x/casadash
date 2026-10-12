@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit';
+import { localDateString } from '$lib/dates';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -24,7 +25,7 @@ export const GET = async ({ locals }) => {
         }
 
         const buffer = zip.toBuffer();
-        const dateStr = new Date().toISOString().split('T')[0];
+        const dateStr = localDateString();
 
         return new Response(new Uint8Array(buffer), {
             headers: {

@@ -1,16 +1,19 @@
 import { db } from '$lib/server/db';
+import { localDateString } from '$lib/dates';
 import { transactions, budgets, categories, users } from '$lib/server/db/schema';
 import { desc, eq, and, gte, lte, sql } from 'drizzle-orm';
+import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ url, locals }) => {
-	if (!locals.user) return { transactions: [], summary: { income: 0, expense: 0, balance: 0 }, breakdown: [], expenseBreakdown: [], dailyBreakdown: [], budget: 0, categoryBudgets: {} as Record<string, number>, filters: { type: 'monthly', from: '', to: '', year: 2026, month: 1, availableYears: [] as number[], paymentMethod: 'all', tags: [] as string[] }, availableTags: [] as string[], allCategories: [] as any[] };
+	// The auth guard in hooks.server.ts already redirects anonymous requests
+	if (!locals.user) throw error(401, 'Non autorizzato');
 
 	const filterType = url.searchParams.get('type') || 'range'; // 'range', 'monthly', 'annual'
 	
 	const now = new Date();
-	const from = url.searchParams.get('from') || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-	const to = url.searchParams.get('to') || now.toISOString().split('T')[0];
+	const from = url.searchParams.get('from') || localDateString(new Date(now.getFullYear(), now.getMonth(), 1));
+	const to = url.searchParams.get('to') || localDateString(now);
 	const year = parseInt(url.searchParams.get('year') || now.getFullYear().toString());
 	const month = parseInt(url.searchParams.get('month') || (now.getMonth() + 1).toString());
 	const paymentMethod = url.searchParams.get('payment_method') || 'all';

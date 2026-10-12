@@ -76,6 +76,9 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 - Abbonamenti, stipendi e spese fisse con frequenza **giornaliera, settimanale, mensile o annuale**.
 - Attivazione e disattivazione senza eliminare la regola.
 - Esecuzione automatica: alla prima richiesta HTTP di ogni ora il server crea i movimenti scaduti con la data prevista, li etichetta con il tag `Ricorrente` e porta avanti la prossima scadenza.
+- Se l'app è rimasta spenta, al riavvio vengono registrate tutte le scadenze saltate.
+- Le scadenze mensili e annuali oltre la fine del mese vengono anticipate all'ultimo giorno (31 gennaio → 28/29 febbraio).
+  - **Limite:** la data resta poi sul nuovo giorno. Un abbonamento del 31 dopo febbraio prosegue il 28; correggi la data da *Ricorrenti* se serve.
 
 ### Famiglia / Utenti (`/settings/users`)
 - Più utenti per nucleo familiare: tutti vedono e gestiscono gli stessi dati.
@@ -140,6 +143,7 @@ Il repository segue il formato dei **repository di add-on Home Assistant**: nell
     ├── static/               # manifest PWA, icone
     └── src/
         ├── hooks.server.ts   # Sessione, controllo accessi, movimenti ricorrenti
+        ├── lib/dates.ts      # Date locali e calcolo delle scadenze ricorrenti
         ├── lib/server/
         │   ├── config.ts     # Percorsi dati (DATA_DIR) e opzioni cookie
         │   ├── auth.ts       # Sessioni, MFA, limitazione dei tentativi
