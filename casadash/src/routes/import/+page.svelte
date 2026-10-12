@@ -225,7 +225,7 @@
 					<thead><tr><th>Data</th><th>Descrizione</th><th>Importo</th></tr></thead>
 					<tbody>
 						{#each result.parsed.slice(0, 5) as r}
-							<tr><td>{formatDate(r.date)}</td><td>{r.description}</td><td class={r.amount < 0 ? 'expense-amount' : 'income-amount'}>{formatEuro(r.amount)}</td></tr>
+							<tr><td>{formatDate(r.date)}</td><td class="desc-cell">{r.description}</td><td class={r.amount < 0 ? 'expense-amount' : 'income-amount'}>{formatEuro(r.amount)}</td></tr>
 						{/each}
 					</tbody>
 				</table>
@@ -298,7 +298,7 @@
 						<tr class:dim={!r.include}>
 							<td><input type="checkbox" bind:checked={r.include} aria-label="Importa riga {r.line}"></td>
 							<td style="white-space:nowrap;">{formatDate(r.date)}</td>
-							<td>
+							<td class="desc-cell">
 								{#if r.editing}
 									<input
 										class="desc-input"
@@ -381,7 +381,11 @@
 	.desc:hover { background:var(--bg-secondary); }
 	.desc i { font-size:0.7rem; color:var(--text-muted); opacity:0; }
 	.desc:hover i, .desc:focus i { opacity:1; }
-	.desc-input { width:100%; min-width:220px; padding:4px 6px; font-size:0.9rem; }
+	.desc-input { width:100%; min-width:160px; padding:4px 6px; font-size:0.8rem; }
+	/* Long bank descriptions wrap in a narrow column so category and checkboxes stay visible
+	   (tables are nowrap globally in app.css) */
+	.desc-cell { white-space:normal; min-width:160px; max-width:300px; font-size:0.8rem; line-height:1.3; overflow-wrap:anywhere; }
+	.desc { display:inline; line-height:1.3; }
 	button.flag { border:none; cursor:pointer; font:inherit; font-size:0.7rem; }
 	.matches { margin-top:6px; padding:8px 10px; border-radius:8px; background:var(--bg-secondary); border:1px solid var(--border-color); font-size:0.8rem; display:flex; flex-direction:column; gap:4px; }
 	.match { display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; }
