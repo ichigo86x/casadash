@@ -52,6 +52,9 @@
             <a href="{base}/reports" class="nav-link {routeId.startsWith('/reports') ? 'active' : ''}">
                 <i class="fas fa-chart-bar"></i> <span>Report</span>
             </a>
+            <a href="{base}/import" class="nav-link {routeId.startsWith('/import') ? 'active' : ''}">
+                <i class="fas fa-file-import"></i> <span>Importa</span>
+            </a>
             <a href="{base}/settings/categories" class="nav-link {routeId.startsWith('/settings/categories') ? 'active' : ''}">
                 <i class="fas fa-tags"></i> <span>Categorie</span>
             </a>

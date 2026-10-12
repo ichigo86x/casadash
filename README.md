@@ -85,6 +85,24 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 - **Esportazione CSV** compatibile con Excel (separatore `;`, codifica UTF-8 con BOM, tag inclusi).
 - **Esportazione PDF** dalla stampa del browser, con un layout pulito senza menu e filtri.
 
+### Importazione dal conto corrente (`/import`)
+- Caricamento dell'**export CSV** dei movimenti della banca. Il file viene letto nel browser e solo le righe confermate arrivano al server.
+- Riconoscimento automatico, modificabile a mano:
+  - separatore (`;`, `,`, tabulazione) e codifica (UTF-8 o Windows-1252);
+  - riga di intestazione, anche dopo righe di preambolo con IBAN e periodo;
+  - colonne di data, descrizione e importo (una colonna con segno, oppure addebiti e accrediti separati);
+  - date `gg/mm/aaaa`, `gg-mm-aa`, `aaaa-mm-gg` e importi `1.234,56` o `1,234.56`.
+- Righe di saldo e intestazioni ripetute vengono scartate e mostrate a parte.
+- **Anteprima** prima dell'importazione:
+  - categoria suggerita dai movimenti con la stessa descrizione;
+  - doppioni rilevati (stessa data, importo e descrizione) ed esclusi in automatico;
+  - possibili doppioni segnalati (stessa data e importo);
+  - selezione riga per riga e marcatura dei giroconti come trasferimenti.
+- Di default importa solo le uscite. Le entrate si includono con un'opzione.
+- I movimenti ricevono il tag del conto scelto e il tag `Importato`, e si ritrovano con la ricerca.
+- La mappatura delle colonne viene ricordata per formato di file (impostazione `import_profiles`).
+- I file Excel vanno prima salvati come CSV.
+
 ### Obiettivi di risparmio (`/goals`)
 - Obiettivi con nome, importo da raggiungere, scadenza facoltativa, colore e icona.
 - Versamenti e prelievi con data e nota.
@@ -181,6 +199,7 @@ Il repository segue il formato dei **repository di add-on Home Assistant**: nell
         ├── hooks.server.ts   # Sessione, controllo accessi, attività orarie (ricorrenti, backup)
         ├── lib/dates.ts      # Date locali e calcolo delle scadenze ricorrenti
         ├── lib/transfers.ts  # Tag "Trasferimento" (condiviso con il browser)
+        ├── lib/import.ts     # Lettura dei CSV bancari: separatore, date, importi, colonne
         ├── lib/server/
         │   ├── config.ts     # Percorsi dati (DATA_DIR) e opzioni cookie
         │   ├── auth.ts       # Sessioni, MFA, limitazione dei tentativi
@@ -196,6 +215,7 @@ Il repository segue il formato dei **repository di add-on Home Assistant**: nell
             ├── login/        # Login e verifica MFA
             ├── reports/      # Report, confronto annuale, export CSV e PDF
             ├── goals/        # Obiettivi di risparmio
+            ├── import/       # Importazione dell'export CSV della banca
             ├── settings/     # budgets, categories, recurring, users, profile, mfa, backup
             ├── api/backup/   # GET: download del backup ZIP
             └── uploads/receipts/[file]/  # Servizio delle ricevute
@@ -370,7 +390,7 @@ Lo schema viene creato e aggiornato a ogni avvio da `seed.js`, che aggiunge tabe
 | `budgets` | tipo di periodo (`monthly`, `annual`, `annual-category`), anno, mese, categoria (`Totale` = complessivo), importo |
 | `categories` | nome, tipo, colore, icona |
 | `goals` / `goal_contributions` | obiettivi di risparmio e relativi versamenti (positivi) e prelievi (negativi) |
-| `settings` | impostazioni chiave/valore in JSON: conti (`account_tags`), pianificazione dei backup |
+| `settings` | impostazioni chiave/valore in JSON: conti (`account_tags`), pianificazione dei backup, mappature di importazione (`import_profiles`) |
 
 ---
 

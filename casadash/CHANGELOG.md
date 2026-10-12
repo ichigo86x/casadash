@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.4.0
+
+### Novità
+- **Importazione dal conto corrente** (menu *Importa*): carica l'export CSV dei movimenti della banca e importa le uscite, e se vuoi anche le entrate.
+  - Riconosce da solo separatore, riga di intestazione (anche dopo righe di preambolo), date `gg/mm/aaaa` e importi in formato italiano o inglese.
+  - Gestisce un'unica colonna con segno oppure colonne separate per addebiti e accrediti. Le righe di saldo vengono scartate.
+  - Prima di importare mostra l'anteprima:
+    - categoria suggerita dai movimenti già registrati con la stessa descrizione;
+    - doppioni già presenti esclusi, possibili doppioni segnalati;
+    - giroconti da marcare come trasferimenti.
+  - I movimenti importati ricevono il tag del conto scelto e il tag `Importato`.
+  - La mappatura delle colonne viene ricordata per i file successivi con la stessa intestazione.
+
 ## 1.3.0
 
 ### Novità

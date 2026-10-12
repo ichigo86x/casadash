@@ -28,6 +28,18 @@ I trasferimenti aggiornano i saldi dei conti ma non contano come entrate o uscit
 
 Per impostare il saldo iniziale di un conto, registra un'entrata con il tag del conto e il tag **Trasferimento**: così non risulta come un'entrata.
 
+## Importare i movimenti della banca
+
+1. Dall'home banking esporta la lista movimenti in formato **CSV**. Se hai solo Excel, aprilo e salvalo come CSV.
+2. In CasaDash apri **Importa** e carica il file.
+3. Controlla le colonne proposte: data, descrizione e importo (una colonna con segno, oppure addebiti e accrediti).
+4. Scegli il conto (es. `BNL`) e premi **Analizza**.
+5. Controlla l'anteprima:
+   - correggi le categorie;
+   - lascia esclusi i doppioni;
+   - spunta il simbolo ⇄ sui giroconti verso altri tuoi conti.
+6. Premi **Importa**.
+
 ## Ruoli
 
 - **Amministratore:** gestisce utenti, backup e ripristino.
