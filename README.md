@@ -174,7 +174,7 @@ Le tre modalità usano lo stesso launcher, `start.mjs`, che esegue in ordine:
 
 1. In Home Assistant apri **Impostazioni → Componenti aggiuntivi → Store**.
 2. Apri **⋮ → Repository**, aggiungi `https://github.com/ichigo86x/casadash` e conferma.
-3. Apri **CasaDash** nello Store e premi **Installa**. La prima build richiede alcuni minuti.
+3. Apri **CasaDash** nello Store e premi **Installa**. Viene scaricata l'immagine già pronta.
 4. Avvia l'add-on e attiva **Mostra nella barra laterale**. CasaDash si apre dal pannello tramite **Ingress**.
 
 Per provare un branch non ancora unito a `main`, aggiungi il repository come `https://github.com/ichigo86x/casadash#nome-branch`.
@@ -223,7 +223,7 @@ docker run -d --name casadash --restart unless-stopped \
   -p 8099:8099 -v casadash_data:/data -e TZ=Europe/Rome casadash
 ```
 
-Quando l'immagine è pubblicata su GHCR (vedi [Rilasci](#rilasci)) puoi usare `image: ghcr.io/ichigo86x/casadash:latest` al posto di `build:`.
+In alternativa alla build locale puoi usare l'immagine pubblicata: `image: ghcr.io/ichigo86x/casadash:latest` al posto di `build:`.
 
 ### 3. Esecuzione diretta con Node.js
 
@@ -365,7 +365,7 @@ npm run dev          # esegue seed.js e avvia Vite su http://localhost:8081
 3. La GitHub Action `publish.yml` pubblica `ghcr.io/ichigo86x/casadash` per `amd64` e `arm64`.
 4. La prima volta, rendi pubblico il pacchetto dalla pagina *Packages* di GitHub.
 
-Per far scaricare all'add-on l'immagine già pronta invece di compilarla, decommenta `image:` in `casadash/config.yaml`.
+L'add-on usa questa immagine (`image:` in `casadash/config.yaml`). Ogni aumento di `version` richiede quindi il push del tag `v<versione>`: altrimenti Home Assistant mostra l'aggiornamento ma non riesce a scaricarlo.
 
 ---
 

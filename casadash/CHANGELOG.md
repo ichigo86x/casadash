@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.2.1
+- L'add-on scarica l'immagine già pronta da GitHub Container Registry invece di compilarla su Home Assistant. Installazioni e aggiornamenti richiedono pochi secondi.
+
 ## 1.2.0
 
 ### Correzioni

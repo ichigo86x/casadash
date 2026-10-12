@@ -1,7 +1,7 @@
 services:
   casadash:
     build: ./casadash
-    # Or use the prebuilt image once published:
+    # Or use the prebuilt image:
     # image: ghcr.io/ichigo86x/casadash:latest
     container_name: casadash
     restart: unless-stopped

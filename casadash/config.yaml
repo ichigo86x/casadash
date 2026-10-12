@@ -1,5 +1,5 @@
 name: CasaDash
-version: "1.2.0"
+version: "1.2.1"
 slug: casadash
 description: Gestione del budget familiare - entrate, uscite, budget, ricorrenti e report.
 url: https://github.com/ichigo86x/casadash
@@ -30,6 +30,7 @@ ports_description:
 options: {}
 schema: {}
 
-# Prebuilt multi-arch image (see .github/workflows/publish.yml), tagged with `version`.
-# Uncomment once the image for this version is published to skip the local build:
-# image: ghcr.io/ichigo86x/casadash
+# Prebuilt multi-arch image (see .github/workflows/publish.yml), tagged with `version`:
+# Home Assistant downloads it instead of building locally.
+# Every version bump needs the matching v<version> tag pushed, or the update cannot be pulled.
+image: ghcr.io/ichigo86x/casadash
