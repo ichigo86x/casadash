@@ -1,182 +1,228 @@
-import { db } from '$lib/server/db';
-import { localDateString } from '$lib/dates';
-import { transactions, budgets, categories, users } from '$lib/server/db/schema';
-import { desc, eq, and, sql, isNull } from 'drizzle-orm';
+import { db, client } from '$lib/server/db';
+import { localDateString, nextOccurrence } from '$lib/dates';
+import { transactions, budgets, categories, users, recurringTransactions } from '$lib/server/db/schema';
+import { desc, eq, and, sql, gte, lte, like, type SQL } from 'drizzle-orm';
 import { fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { InvalidReceiptError, saveReceipt } from '$lib/server/receipts';
+import { hasTag, isTransfer, notTransfer } from '$lib/server/transfers';
+import { getSetting } from '$lib/server/settings';
 
-export const load: PageServerLoad = async ({ locals }) => {
+const PAGE_SIZES = [10, 15, 25, 50, 100];
+
+// Sums of income/expense; callers add `notTransfer` so moves between own accounts never count
+const incomeSum = sql<number>`coalesce(sum(case when ${transactions.type} = 'income' then ${transactions.amount} end), 0)`;
+const expenseSum = sql<number>`coalesce(sum(case when ${transactions.type} = 'expense' then ${transactions.amount} end), 0)`;
+
+/** Transaction list filters, read from the URL so the list survives reloads and back/forward. */
+function listFilters(url: URL) {
+	const p = url.searchParams;
+	const num = (k: string) => {
+		const v = parseFloat(p.get(k) || '');
+		return isNaN(v) ? null : v;
+	};
+	const size = parseInt(p.get('size') || '15');
+	return {
+		q: p.get('q') || '',
+		category: p.get('cat') || '',
+		type: p.get('type') || '',
+		paymentMethod: p.get('pay') || '',
+		account: p.get('account') || '',
+		min: num('min'),
+		max: num('max'),
+		from: p.get('from') || '',
+		to: p.get('to') || '',
+		attachment: p.get('att') || '',
+		page: Math.max(1, parseInt(p.get('page') || '1') || 1),
+		size: PAGE_SIZES.includes(size) ? size : 15
+	};
+}
+
+export const load: PageServerLoad = async ({ url }) => {
 	const now = new Date();
+	const today = localDateString(now);
 	const currentYear = now.getFullYear();
 	const currentMonth = now.getMonth() + 1;
-	const currentYearStr = String(currentYear).padStart(4, '0');
-	const currentMonthStr = String(currentMonth).padStart(2, '0');
+	const yearPrefix = `${currentYear}-`;
+	const monthPrefix = today.slice(0, 8); // "YYYY-MM-"
 
-	// 1. All Transactions for global totals (ordered for client-side pagination)
-	const allT = await db.select().from(transactions).orderBy(desc(transactions.date), desc(transactions.id));
-	
-	let totalIncome = 0; let totalExpenses = 0;
-	let monthExpenses = 0; let yearExpenses = 0;
-	const monthCategoryExpenses: Record<string, number> = {};
+	// 1. Totals (all time, current year, current month)
+	const [totals] = await db.select({ income: incomeSum, expense: expenseSum }).from(transactions).where(notTransfer);
+	const [yearTotals] = await db.select({ expense: expenseSum }).from(transactions)
+		.where(and(notTransfer, like(transactions.date, `${yearPrefix}%`)));
+	const [monthTotals] = await db.select({ income: incomeSum, expense: expenseSum }).from(transactions)
+		.where(and(notTransfer, like(transactions.date, `${monthPrefix}%`)));
+	// Recurring spending already booked this month, kept out of the daily pace used by the forecast
+	const [monthRecurring] = await db.select({ expense: expenseSum }).from(transactions)
+		.where(and(notTransfer, like(transactions.date, `${monthPrefix}%`), hasTag('Ricorrente')));
 
-	// Chart Data specific
-	const categoryTotals: Record<string, { income: number, expense: number }> = {};
-	
-	// Trend Data (Last 30 days)
-	const trendData: Record<string, { income: number, expense: number }> = {};
-	const today = new Date();
+	// 2. Chart data
+	const categoryRows = await db.select({ category: transactions.category, income: incomeSum, expense: expenseSum })
+		.from(transactions).where(notTransfer).groupBy(transactions.category);
+
+	const trendStart = localDateString(new Date(currentYear, currentMonth - 1, now.getDate() - 29));
+	const trendRows = await db.select({ date: transactions.date, income: incomeSum, expense: expenseSum })
+		.from(transactions)
+		.where(and(notTransfer, gte(transactions.date, trendStart), lte(transactions.date, today)))
+		.groupBy(transactions.date);
+	const trendData: Record<string, { income: number; expense: number }> = {};
 	for (let i = 29; i >= 0; i--) {
-		const d = new Date(today);
-		d.setDate(d.getDate() - i);
-		trendData[localDateString(d)] = { income: 0, expense: 0 };
+		trendData[localDateString(new Date(currentYear, currentMonth - 1, now.getDate() - i))] = { income: 0, expense: 0 };
 	}
+	for (const r of trendRows) if (trendData[r.date]) trendData[r.date] = { income: r.income, expense: r.expense };
 
-	const uniqueDescriptions = new Set<string>();
-	const uniqueTags = new Set<string>();
-
-	for (const t of allT) {
-		uniqueDescriptions.add(t.description);
-		try {
-			const parsedTags = JSON.parse(t.tags || '[]');
-			if (Array.isArray(parsedTags)) {
-				parsedTags.forEach(tag => uniqueTags.add(tag));
-			}
-		} catch(e) {}
-
-		const tYear = t.date.substring(0, 4);
-		const tMonth = t.date.substring(5, 7);
-
-		if (t.type === 'income') totalIncome += t.amount;
-		if (t.type === 'expense') {
-			totalExpenses += t.amount;
-			if (tYear === currentYearStr) yearExpenses += t.amount;
-			if (tYear === currentYearStr && tMonth === currentMonthStr) {
-				monthExpenses += t.amount;
-				monthCategoryExpenses[t.category] = (monthCategoryExpenses[t.category] || 0) + t.amount;
-			}
-		}
-
-		// Category aggregation
-		if (!categoryTotals[t.category]) categoryTotals[t.category] = { income: 0, expense: 0 };
-		if (t.type === 'income') categoryTotals[t.category].income += t.amount;
-		else categoryTotals[t.category].expense += t.amount;
-
-		// Trend aggregation
-		if (trendData[t.date]) {
-			if (t.type === 'income') trendData[t.date].income += t.amount;
-			else trendData[t.date].expense += t.amount;
+	const monthKey = sql<string>`substr(${transactions.date}, 6, 2)`;
+	const monthlyRows = await db.select({ month: monthKey, income: incomeSum, expense: expenseSum })
+		.from(transactions).where(and(notTransfer, like(transactions.date, `${yearPrefix}%`))).groupBy(monthKey);
+	const monthlyChart = { income: Array(12).fill(0), expense: Array(12).fill(0) };
+	for (const r of monthlyRows) {
+		const idx = parseInt(r.month) - 1;
+		if (idx >= 0 && idx < 12) {
+			monthlyChart.income[idx] = r.income;
+			monthlyChart.expense[idx] = r.expense;
 		}
 	}
 
-	// 2. Budgets
-	const mbResult = await db.select().from(budgets).where(
+	// 3. Budgets for the current month and year
+	const monthBudgets = await db.select().from(budgets).where(
 		and(eq(budgets.periodType, 'monthly'), eq(budgets.year, currentYear), eq(budgets.month, currentMonth))
 	);
-	const abResult = await db.select().from(budgets).where(
+	const [annualBudgetRow] = await db.select().from(budgets).where(
 		and(eq(budgets.periodType, 'annual'), eq(budgets.year, currentYear))
 	).limit(1);
+	const monthCategoryRows = await db.select({ category: transactions.category, expense: expenseSum })
+		.from(transactions).where(and(notTransfer, like(transactions.date, `${monthPrefix}%`))).groupBy(transactions.category);
+	const monthCategoryExpenses: Record<string, number> = Object.fromEntries(monthCategoryRows.map((r) => [r.category, r.expense]));
 
 	let monthlyBudget = 0;
-	let monthlyId = null;
-	const budgetWarnings: { category: string, spent: number, limit: number, pct: number }[] = [];
-
-	for (const b of mbResult) {
+	const budgetWarnings: { category: string; spent: number; limit: number; pct: number }[] = [];
+	for (const b of monthBudgets) {
 		if (b.category === 'Totale' || !b.category) {
 			monthlyBudget = b.amount;
-			monthlyId = b.id;
-		} else {
+		} else if (b.amount > 0) {
 			const spent = monthCategoryExpenses[b.category] || 0;
 			const pct = (spent / b.amount) * 100;
-			if (pct > 80) { // Notice user if nearing or exceeding limit
-				budgetWarnings.push({ category: b.category, spent, limit: b.amount, pct });
-			}
+			if (pct > 80) budgetWarnings.push({ category: b.category, spent, limit: b.amount, pct });
 		}
 	}
 	budgetWarnings.sort((a, b) => b.pct - a.pct);
+	const annualBudget = annualBudgetRow?.amount || 0;
 
-	const annualBudget = abResult[0]?.amount || 0;
-
-	// 3. Recent Transactions (limit 15)
-	const recentT = await db.select().from(transactions).orderBy(desc(transactions.date), desc(transactions.id)).limit(15);
-
-	// 4. Monthly Chart Data (for current year)
-	const monthlyChart = { income: Array(12).fill(0), expense: Array(12).fill(0) };
-	for (const t of allT) {
-		if (t.date.substring(0, 4) === currentYearStr) {
-			const mIdx = parseInt(t.date.substring(5, 7)) - 1;
-			if (t.type === 'income') monthlyChart.income[mIdx] += t.amount;
-			else monthlyChart.expense[mIdx] += t.amount;
+	// 4. End-of-month forecast: spending so far, the same daily pace for the remaining days,
+	//    plus recurring expenses still due this month
+	const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+	const dayOfMonth = now.getDate();
+	const monthEnd = `${monthPrefix}${String(daysInMonth).padStart(2, '0')}`;
+	const activeRecurring = await db.select().from(recurringTransactions).where(
+		and(eq(recurringTransactions.isActive, 1), eq(recurringTransactions.type, 'expense'), lte(recurringTransactions.nextDate, monthEnd))
+	);
+	let pendingRecurring = 0;
+	for (const job of activeRecurring) {
+		let d = job.nextDate;
+		for (let i = 0; i < 400 && d <= monthEnd; i++) {
+			if (d > today) pendingRecurring += job.amount;
+			d = nextOccurrence(d, job.frequency, job.anchorDay);
 		}
 	}
+	const variableSpent = monthTotals.expense - monthRecurring.expense;
+	const forecast = monthTotals.expense + (variableSpent / dayOfMonth) * (daysInMonth - dayOfMonth) + pendingRecurring;
 
-	// Format category data for chart
-	const chartCategoryLabels = Object.keys(categoryTotals);
-	const chartCategoryExpenses = chartCategoryLabels.map(c => categoryTotals[c].expense);
-	const chartCategoryIncomes = chartCategoryLabels.map(c => categoryTotals[c].income);
+	// 5. Credit card still to be settled (overall, no date filter)
+	const [cc] = await db.select({ total: sql<number>`coalesce(sum(${transactions.amount}), 0)`, count: sql<number>`count(*)` })
+		.from(transactions).where(and(eq(transactions.paymentMethod, 'credit_card'), eq(transactions.settled, 0)));
+	const [lastSettled] = await db.select({ date: sql<string | null>`max(${transactions.date})` })
+		.from(transactions).where(and(eq(transactions.paymentMethod, 'credit_card'), eq(transactions.settled, 1)));
 
-	// Format trend data
-	const trendLabels = Object.keys(trendData);
-	const trendIncome = trendLabels.map(d => trendData[d].income);
-	const trendExpense = trendLabels.map(d => trendData[d].expense);
+	// 6. Account balances from the account tags. Transfers count here: they move money between accounts.
+	const accountTags = await getSetting<string[]>('account_tags', []);
+	const accounts: { tag: string; balance: number }[] = [];
+	for (const tag of accountTags) {
+		const [r] = await db.select({ income: incomeSum, expense: expenseSum }).from(transactions).where(hasTag(tag));
+		accounts.push({ tag, balance: r.income - r.expense });
+	}
 
-	// Load dynamic categories
+	// 7. Paginated, filtered transaction list
+	const f = listFilters(url);
+	const conditions: SQL[] = [];
+	if (f.q) conditions.push(sql`lower(${transactions.description}) LIKE ${'%' + f.q.toLowerCase() + '%'}`);
+	if (f.category) conditions.push(eq(transactions.category, f.category));
+	if (f.type === 'transfer') conditions.push(isTransfer);
+	else if (f.type === 'income' || f.type === 'expense') conditions.push(eq(transactions.type, f.type), notTransfer);
+	if (f.paymentMethod) conditions.push(eq(transactions.paymentMethod, f.paymentMethod));
+	if (f.account) conditions.push(hasTag(f.account));
+	if (f.min !== null) conditions.push(gte(transactions.amount, f.min));
+	if (f.max !== null) conditions.push(lte(transactions.amount, f.max));
+	if (f.from) conditions.push(gte(transactions.date, f.from));
+	if (f.to) conditions.push(lte(transactions.date, f.to));
+	if (f.attachment === 'with') conditions.push(sql`${transactions.receiptPath} IS NOT NULL`);
+	if (f.attachment === 'without') conditions.push(sql`${transactions.receiptPath} IS NULL`);
+	const where = conditions.length ? and(...conditions) : undefined;
+
+	const [{ count: filteredCount }] = await db.select({ count: sql<number>`count(*)` }).from(transactions).where(where);
+	const totalPages = Math.max(1, Math.ceil(filteredCount / f.size));
+	const page = Math.min(f.page, totalPages);
+	const list = await db.select().from(transactions).where(where)
+		.orderBy(desc(transactions.date), desc(transactions.id))
+		.limit(f.size).offset((page - 1) * f.size);
+	const [{ count: transactionCount }] = await db.select({ count: sql<number>`count(*)` }).from(transactions);
+
+	// 8. Autocomplete sources and lookups
+	const descriptionRows = await db.select({ description: transactions.description }).from(transactions)
+		.groupBy(transactions.description).orderBy(desc(sql`max(${transactions.date})`)).limit(500);
+	const tagRows = client.prepare(
+		'SELECT DISTINCT j.value AS tag FROM transactions t, json_each(t.tags) j WHERE json_valid(t.tags) ORDER BY 1'
+	).all() as { tag: string }[];
+
 	const dbCategories = await db.select().from(categories);
-	const incomeCats = dbCategories.filter(c => c.type === 'income');
-	const expenseCats = dbCategories.filter(c => c.type === 'expense');
-
 	const dbUsers = await db.select({ id: users.id, displayName: users.displayName }).from(users);
-
-	// 5. CC unsettled transactions (settled = 0, NO date filter – overall outstanding)
-	const ccUnsettled = allT.filter(t => t.paymentMethod === 'credit_card' && t.settled === 0);
-	const ccUnsettledTotal = ccUnsettled.reduce((s, t) => s + t.amount, 0);
-
-	// Find the date of the last settled CC transaction (to pre-fill the bulk-settle from-date)
-	const settledCC = allT
-		.filter(t => t.paymentMethod === 'credit_card' && t.settled === 1)
-		.sort((a, b) => b.date.localeCompare(a.date));
-	const lastSettledDate = settledCC[0]?.date || null;
 
 	return {
 		currentYear,
 		currentMonth,
 		summary: {
-			totalIncome,
-			totalExpenses,
-			balance: totalIncome - totalExpenses,
-			monthExpenses,
-			yearExpenses
+			totalIncome: totals.income,
+			totalExpenses: totals.expense,
+			balance: totals.income - totals.expense,
+			monthIncome: monthTotals.income,
+			monthExpenses: monthTotals.expense,
+			yearExpenses: yearTotals.expense
 		},
 		budget: {
-			monthlyId: mbResult[0]?.id || null,
-			annualId: abResult[0]?.id || null,
 			monthly: monthlyBudget,
 			annual: annualBudget,
-			monthlyPct: monthlyBudget > 0 ? Math.min((monthExpenses / monthlyBudget) * 100, 100).toFixed(1) : 0,
-			annualPct: annualBudget > 0 ? Math.min((yearExpenses / annualBudget) * 100, 100).toFixed(1) : 0
+			warnings: budgetWarnings
 		},
-		allTransactions: allT,
+		forecast: {
+			expense: forecast,
+			pendingRecurring,
+			dayOfMonth,
+			daysInMonth
+		},
 		chartData: {
 			category: {
-				labels: chartCategoryLabels,
-				expenses: chartCategoryExpenses,
-				incomes: chartCategoryIncomes
+				labels: categoryRows.map((r) => r.category),
+				expenses: categoryRows.map((r) => r.expense),
+				incomes: categoryRows.map((r) => r.income)
 			},
 			trend: {
-				labels: trendLabels,
-				income: trendIncome,
-				expense: trendExpense
+				labels: Object.keys(trendData),
+				income: Object.values(trendData).map((t) => t.income),
+				expense: Object.values(trendData).map((t) => t.expense)
 			},
 			monthly: monthlyChart
 		},
+		transactions: list,
+		transactionCount,
+		list: { ...f, page, totalPages, total: filteredCount },
+		accounts,
 		allCategories: dbCategories,
-		incomeCategories: incomeCats,
-		expenseCategories: expenseCats,
-		uniqueDescriptions: Array.from(uniqueDescriptions),
-		uniqueTags: Array.from(uniqueTags),
-		ccUnsettledTotal,
-		ccUnsettledCount: ccUnsettled.length,
-		lastSettledDate,
+		incomeCategories: dbCategories.filter((c) => c.type === 'income'),
+		expenseCategories: dbCategories.filter((c) => c.type === 'expense'),
+		uniqueDescriptions: descriptionRows.map((r) => r.description),
+		uniqueTags: tagRows.map((r) => String(r.tag)),
+		ccUnsettledTotal: cc.total,
+		ccUnsettledCount: cc.count,
+		lastSettledDate: lastSettled?.date || null,
 		allUsers: dbUsers
 	};
 };

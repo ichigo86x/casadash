@@ -67,6 +67,7 @@ export const actions: Actions = {
                 paymentMethod,
                 frequency: frequency as any,
                 nextDate,
+                anchorDay: parseInt(nextDate.slice(8, 10)),
                 tags: JSON.stringify(tagsArr),
                 createdBy: locals.user.id
             });
@@ -140,6 +141,8 @@ export const actions: Actions = {
                 paymentMethod,
                 frequency: frequency as any,
                 nextDate,
+                // Editing the date re-anchors the schedule on the chosen day
+                anchorDay: parseInt(nextDate.slice(8, 10)),
                 tags: JSON.stringify(tagsArr)
             }).where(eq(recurringTransactions.id, id));
             return { success: true };

@@ -271,6 +271,7 @@ body {
 
 .income-amount { color: var(--accent-green) !important; }
 .expense-amount { color: var(--accent-red) !important; }
+.transfer-amount { color: var(--accent-blue) !important; }
 .balance-amount { color: var(--accent-blue-light) !important; }
 .card-balance.negative .balance-amount { color: var(--accent-red) !important; }
 
@@ -732,6 +733,8 @@ tr:hover {
 
 .type-income { background: var(--accent-green-glow); color: var(--accent-green); }
 .type-expense { background: var(--accent-red-glow); color: var(--accent-red); }
+/* Moves between own accounts: neither income nor expense */
+.type-transfer { background: rgba(52, 152, 219, 0.15); color: var(--accent-blue); }
 
 .delete-btn {
     background: none;
@@ -1531,4 +1534,12 @@ tr:hover {
 ::selection {
     background: rgba(67, 97, 238, 0.3);
     color: white;
+}
+
+
+/* Printing / "Esporta PDF": keep only the content */
+@media print {
+    .top-nav, .no-print, .report-tabs, .report-filter, .btn-primary, .btn-filter { display: none !important; }
+    body { background: #fff !important; color: #000 !important; }
+    .summary-card, .chart-section, .category-item, .report-table { break-inside: avoid; box-shadow: none !important; }
 }

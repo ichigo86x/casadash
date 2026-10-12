@@ -13,6 +13,8 @@ if [ -f /data/options.json ]; then
     echo "Home Assistant add-on mode (Ingress and optional direct port)."
     # Ingress forwards to the fixed ingress_port in config.yaml
     export PORT=8099
+    # Automatic backups go to the shared folder: visible via Samba, kept if the add-on is removed
+    export BACKUP_DIR="${BACKUP_DIR:-/share/casadash/backups}"
 else
     echo "Standalone container mode."
     export PORT="${PORT:-8099}"

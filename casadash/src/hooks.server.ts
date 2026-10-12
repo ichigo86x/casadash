@@ -1,12 +1,34 @@
 import { db } from '$lib/server/db';
 import { recurringTransactions, transactions } from '$lib/server/db/schema';
 import { lte, eq, and } from 'drizzle-orm';
-import { error, redirect, type Handle, type HandleServerError } from '@sveltejs/kit';
+import { error, redirect, type Handle, type HandleServerError, type ServerInit } from '@sveltejs/kit';
+import { runScheduledBackup } from '$lib/server/backup';
 import { SESSION_COOKIE, purgeExpiredSessions, validateSession } from '$lib/server/auth';
 import { appUrl, ingressBase } from '$lib/server/ingress';
 import { localDateString, nextOccurrence } from '$lib/dates';
 
-let lastRun = 0;
+const HOUR = 60 * 60 * 1000;
+
+// Background jobs, independent of page visits: recurring transactions, session cleanup, backups
+async function runHourlyTasks() {
+    try {
+        await processRecurringTransactions();
+        await purgeExpiredSessions();
+    } catch (e) {
+        console.error("[CRON] Errore nell'esecuzione dei task ricorrenti:", e);
+    }
+    try {
+        await runScheduledBackup();
+    } catch (e) {
+        console.error('[BACKUP] Errore nel backup automatico:', e);
+    }
+}
+
+export const init: ServerInit = async () => {
+    // First run shortly after start-up, then every hour
+    setTimeout(runHourlyTasks, 5000).unref();
+    setInterval(runHourlyTasks, HOUR).unref();
+};
 
 // Routes reachable without a session. Static files (/_app, static/) are served before this hook.
 function isPublicPath(pathname: string): boolean {
@@ -19,7 +41,7 @@ export const handle: Handle = async ({ event, resolve }) => {
     // 1. Resolve Auth Session Context
     const user = await validateSession(event.cookies.get(SESSION_COOKIE), 'session');
     event.locals.user = user
-        ? { id: user.id, username: user.username, displayName: user.displayName, mustChangePassword: user.mustChangePassword }
+        ? { id: user.id, username: user.username, displayName: user.displayName, mustChangePassword: user.mustChangePassword, role: user.role }
         : null;
 
     // 2. Every route except the login page requires a session
@@ -33,20 +55,13 @@ export const handle: Handle = async ({ event, resolve }) => {
         if (event.locals.user.mustChangePassword && pathname !== '/settings/profile') {
             throw redirect(303, appUrl(event.locals, '/settings/profile'));
         }
-    }
-
-    // 3. Perform Automated Tasks checks in Background
-    const now = Date.now();
-    // Run the automated tasks check at most once per hour to minimize I/O overhead
-    if (now - lastRun > 3600000) {
-        lastRun = now;
-        try {
-            await processRecurringTransactions();
-            await purgeExpiredSessions();
-        } catch (e) {
-            console.error("[CRON] Errore nell'esecuzione dei task ricorrenti:", e);
+        // Backups contain every account's data and password hashes: administrators only
+        if (event.locals.user.role !== 'admin' && (pathname.startsWith('/settings/backup') || pathname.startsWith('/api/backup'))) {
+            if (pathname.startsWith('/api/')) throw error(403, 'Riservato agli amministratori');
+            throw redirect(303, appUrl(event.locals, '/'));
         }
     }
+
 
     return resolve(event);
 };
@@ -84,7 +99,7 @@ async function processRecurringTransactions() {
                 createdBy: job.createdBy
             });
             // Advance the calendar for the next billing cycle
-            nextDateStr = nextOccurrence(nextDateStr, job.frequency);
+            nextDateStr = nextOccurrence(nextDateStr, job.frequency, job.anchorDay);
         }
         
         // Save the new date for the next automated iteration

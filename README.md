@@ -13,6 +13,7 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 ## Indice
 
 - [Funzionalità](#funzionalità)
+  - [Conti e trasferimenti](#conti-e-trasferimenti)
 - [Stack tecnologico](#stack-tecnologico)
 - [Struttura del repository](#struttura-del-repository)
 - [Installazione](#installazione)
@@ -32,9 +33,13 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 ## Funzionalità
 
 ### Dashboard (`/`)
-- **Riepilogo:** totale entrate, totale uscite, saldo complessivo, spese del mese corrente e dell'anno corrente.
-- **Avanzamento budget:** barre di avanzamento del budget mensile totale e del budget annuale.
-- **Avvisi budget per categoria:** segnala le categorie che hanno superato l'80% del budget mensile, in ordine di gravità.
+- **Riepilogo:** totale entrate, totale uscite e saldo complessivo. I trasferimenti tra conti sono esclusi.
+- **Questo mese:**
+  - spese ed entrate del mese;
+  - avanzamento del budget mensile;
+  - **previsione di fine mese**: spese finora + stesso ritmo giornaliero per i giorni rimanenti + ricorrenti ancora da addebitare;
+  - avvisi per le categorie oltre l'80% del budget.
+- **Saldi per conto:** saldo di ogni conto definito in *Categorie → Conti*, trasferimenti inclusi. Un clic filtra la lista su quel conto.
 - **Grafici** (Chart.js):
   - entrate e uscite per categoria;
   - andamento giornaliero degli ultimi 30 giorni;
@@ -43,46 +48,76 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
   - inserimento, modifica ed eliminazione di entrate e uscite;
   - campi: tipo, descrizione, importo, data, categoria, metodo di pagamento, tag;
   - metodi di pagamento: **bancomat**, **contanti**, **carta di credito**;
-  - **tag liberi** con suggerimenti basati sui tag già usati;
+  - **tag liberi** con suggerimenti, più pulsanti rapidi per `Trasferimento` e per i conti;
   - **autocompletamento della descrizione** dai movimenti precedenti;
   - **allegato ricevuta** (immagine o PDF), visualizzabile e rimovibile;
-  - indicazione dell'utente della famiglia che ha registrato il movimento;
-  - lista completa con paginazione lato client.
+  - indicazione dell'utente della famiglia che ha registrato il movimento.
+- **Lista e ricerca:**
+  - paginazione lato server, veloce anche con anni di dati;
+  - filtri per descrizione, categoria, tipo (entrata, uscita, trasferimento), metodo di pagamento, conto, importo, date e allegato;
+  - i filtri restano nell'indirizzo della pagina, quindi sopravvivono al ricaricamento.
 - **Carta di credito:**
   - le spese con carta di credito possono restare "da saldare";
   - la dashboard mostra totale e numero dei movimenti non ancora addebitati;
   - **saldo in blocco** per intervallo di date, con la data di partenza precompilata dall'ultimo saldo.
 
+### Conti e trasferimenti
+- I **conti** sono tag, ad esempio `BNL`, `Poste`, `Libretto`. Si elencano in *Categorie → Conti*.
+- Un movimento con il tag **`Trasferimento`** sposta soldi tra due conti della famiglia:
+  - cambia il saldo dei conti coinvolti;
+  - **non conta** come entrata o uscita in totali, grafici, budget, previsioni e report.
+- Per un giroconto, ad esempio da BNL al Libretto, registra:
+  - un'uscita con i tag `BNL` e `Trasferimento`;
+  - un'entrata con i tag `Libretto` e `Trasferimento`.
+- Il **saldo iniziale** di un conto si registra come entrata con il tag del conto e `Trasferimento`.
+
 ### Report (`/reports`)
 - Filtri per **intervallo di date**, **mese** o **anno**.
-- Filtri aggiuntivi: metodo di pagamento, tag (multipli), categoria, esclusione delle spese con carta di credito, presenza o assenza di ricevuta.
-- Riepilogo entrate, uscite e saldo del periodo.
-- Ripartizione per categoria, ripartizione delle uscite e ripartizione giornaliera, confrontate con i budget del periodo.
-- **Esportazione CSV** compatibile con Excel (separatore `;`, codifica UTF-8 con BOM).
+- Filtri aggiuntivi:
+  - metodo di pagamento (conto/bancomat, carta di credito, contanti);
+  - tag multipli, quindi anche per conto;
+  - categoria;
+  - esclusione delle spese con carta di credito non saldate;
+  - presenza o assenza di ricevuta.
+- Riepilogo di entrate, uscite e saldo del periodo, con un riquadro separato per i trasferimenti.
+- **Confronto con lo stesso periodo dell'anno precedente**, sui totali e per ogni categoria di spesa.
+- Ripartizione per categoria (entrate e uscite separate) e ripartizione giornaliera, confrontate con i budget del periodo.
+- **Esportazione CSV** compatibile con Excel (separatore `;`, codifica UTF-8 con BOM, tag inclusi).
+- **Esportazione PDF** dalla stampa del browser, con un layout pulito senza menu e filtri.
+
+### Obiettivi di risparmio (`/goals`)
+- Obiettivi con nome, importo da raggiungere, scadenza facoltativa, colore e icona.
+- Versamenti e prelievi con data e nota.
+- Avanzamento, importo mancante e **quota mensile necessaria** per arrivare alla scadenza.
+- Gli obiettivi raggiunti o abbandonati si possono archiviare.
 
 ### Budget (`/settings/budgets`)
 - Budget **mensile** per categoria e totale.
 - Budget **annuale** totale.
 - Budget **annuale per categoria**.
 
-### Categorie (`/settings/categories`)
+### Categorie e conti (`/settings/categories`)
 - Categorie di entrata e di uscita con **colore** e **icona** (Font Awesome).
 - Creazione, modifica ed eliminazione.
 - Categorie predefinite create al primo avvio:
   - **Uscite:** Cibo, Trasporti, Intrattenimento, Utenze, Shopping, Salute, Casa, Istruzione, Altro.
   - **Entrate:** Stipendio, Freelance, Investimenti, Vendite, Bonus, Rimborsi, Altro.
+- Elenco dei **conti**, vedi [Conti e trasferimenti](#conti-e-trasferimenti).
 
 ### Movimenti ricorrenti (`/settings/recurring`)
 - Abbonamenti, stipendi e spese fisse con frequenza **giornaliera, settimanale, mensile o annuale**.
 - Attivazione e disattivazione senza eliminare la regola.
-- Esecuzione automatica: alla prima richiesta HTTP di ogni ora il server crea i movimenti scaduti con la data prevista, li etichetta con il tag `Ricorrente` e porta avanti la prossima scadenza.
+- **Esecuzione automatica:** ogni ora, in background, il server crea i movimenti scaduti con la data prevista, li etichetta con il tag `Ricorrente` e porta avanti la prossima scadenza.
 - Se l'app è rimasta spenta, al riavvio vengono registrate tutte le scadenze saltate.
-- Le scadenze mensili e annuali oltre la fine del mese vengono anticipate all'ultimo giorno (31 gennaio → 28/29 febbraio).
-  - **Limite:** la data resta poi sul nuovo giorno. Un abbonamento del 31 dopo febbraio prosegue il 28; correggi la data da *Ricorrenti* se serve.
+- Il giorno del mese scelto viene ricordato. Un ricorrente del 31 cade il 28/29 febbraio e torna al 31 a marzo.
 
 ### Famiglia / Utenti (`/settings/users`)
 - Più utenti per nucleo familiare: tutti vedono e gestiscono gli stessi dati.
-- Aggiunta ed eliminazione degli utenti. I dati di un utente eliminato passano a chi lo elimina.
+- **Ruoli:**
+  - **Amministratore**: gestisce utenti, ruoli, backup e ripristino;
+  - **Membro**: gestisce movimenti, budget, categorie, ricorrenti e obiettivi.
+- Deve sempre restare almeno un amministratore.
+- I dati di un utente eliminato passano a chi lo elimina.
 - Un nuovo utente deve scegliere una password personale al primo accesso.
 
 ### Profilo e sicurezza
@@ -91,8 +126,9 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 - Password salvate con **bcrypt**; sono accettati anche gli hash `$2y$` della vecchia versione PHP.
 - Sessioni lato server con token casuale e blocco temporaneo dopo 5 tentativi di accesso falliti.
 
-### Backup (`/settings/backup`)
+### Backup (`/settings/backup`, solo amministratori)
 - **Download** di un archivio ZIP con il database SQLite e tutte le ricevute caricate.
+- **Backup automatici** giornalieri o settimanali, con numero di copie da tenere. Si possono avviare a mano, scaricare ed eliminare.
 - **Ripristino** da un archivio ZIP di CasaDash, con riavvio automatico dell'applicazione. L'archivio viene convalidato prima di sovrascrivere i dati.
 - Gli archivi sono compatibili tra add-on, Docker e installazione diretta.
 
@@ -142,18 +178,24 @@ Il repository segue il formato dei **repository di add-on Home Assistant**: nell
     ├── drizzle/              # Migrazioni e snapshot drizzle-kit
     ├── static/               # manifest PWA, icone
     └── src/
-        ├── hooks.server.ts   # Sessione, controllo accessi, movimenti ricorrenti
+        ├── hooks.server.ts   # Sessione, controllo accessi, attività orarie (ricorrenti, backup)
         ├── lib/dates.ts      # Date locali e calcolo delle scadenze ricorrenti
+        ├── lib/transfers.ts  # Tag "Trasferimento" (condiviso con il browser)
         ├── lib/server/
         │   ├── config.ts     # Percorsi dati (DATA_DIR) e opzioni cookie
         │   ├── auth.ts       # Sessioni, MFA, limitazione dei tentativi
         │   ├── ingress.ts    # Prefisso Home Assistant Ingress
         │   ├── receipts.ts   # Salvataggio e servizio delle ricevute
+        │   ├── backup.ts     # Archivio ZIP, backup automatici e conservazione
+        │   ├── settings.ts   # Impostazioni chiave/valore
+        │   ├── transfers.ts  # Condizioni SQL per trasferimenti e tag
+        │   ├── roles.ts      # Controllo del ruolo amministratore
         │   └── db/           # Connessione SQLite, schema Drizzle
         └── routes/
             ├── +page.*       # Dashboard e azioni sui movimenti
             ├── login/        # Login e verifica MFA
-            ├── reports/      # Report ed export CSV
+            ├── reports/      # Report, confronto annuale, export CSV e PDF
+            ├── goals/        # Obiettivi di risparmio
             ├── settings/     # budgets, categories, recurring, users, profile, mfa, backup
             ├── api/backup/   # GET: download del backup ZIP
             └── uploads/receipts/[file]/  # Servizio delle ricevute
@@ -271,6 +313,7 @@ Variabili d'ambiente, oppure file `.env` nell'installazione diretta:
 | `DATA_DIR` | `./data` (`/data` nel container) | Cartella del database (`cdash.db`) e delle ricevute (`uploads/`). |
 | `DATABASE_URL` | `$DATA_DIR/cdash.db` | Percorso esplicito del database. Lo usa anche drizzle-kit. |
 | `UPLOADS_DIR` | `$DATA_DIR/uploads` | Cartella delle ricevute. |
+| `BACKUP_DIR` | `$DATA_DIR/backups` (`/share/casadash/backups` nell'add-on) | Cartella dei backup automatici. |
 | `PORT` | `8099` | Porta HTTP. Nell'add-on è fissa, perché Ingress usa la 8099. |
 | `HOST` | `0.0.0.0` | Interfaccia di ascolto. |
 | `COOKIE_SECURE` | `auto` | Flag `Secure` del cookie di sessione. `auto` lo attiva solo per richieste HTTPS, anche dietro un proxy che invia `X-Forwarded-Proto`. Valori ammessi: `true`, `false`. |
@@ -302,6 +345,7 @@ Dopo il primo accesso:
 |---|---|---|
 | Database | `/data/cdash.db` | `$DATA_DIR/cdash.db` (default `./data/cdash.db`) |
 | Ricevute | `/data/uploads/receipts/` | `$DATA_DIR/uploads/receipts/` |
+| Backup automatici | `/share/casadash/backups/` (add-on), `/data/backups/` (Docker) | `$DATA_DIR/backups/` |
 
 - **Backup dall'app:** *Backup → Scarica* produce `CasaDash_Backup_AAAA-MM-GG.zip`. Il database viene copiato con l'API di backup online di SQLite, quindi la copia è coerente anche mentre l'app è in uso.
 - **Ripristino dall'app:** carica lo ZIP.
@@ -319,12 +363,14 @@ Lo schema viene creato e aggiornato a ogni avvio da `seed.js`, che aggiunge tabe
 
 | Tabella | Contenuto |
 |---|---|
-| `users` | username, hash della password, segreto TOTP opzionale, nome visualizzato, obbligo di cambio password |
+| `users` | username, hash della password, segreto TOTP opzionale, nome visualizzato, ruolo (`admin`/`member`), obbligo di cambio password |
 | `sessions` | sessioni attive e verifiche MFA in corso (solo l'hash SHA-256 del token), con scadenza |
 | `transactions` | tipo (`income`/`expense`), descrizione, importo, data, categoria, metodo di pagamento, tag (JSON), ricevuta, stato del saldo della carta di credito, autore |
-| `recurring_transactions` | regole ricorrenti: frequenza, prossima scadenza, attiva/disattiva |
+| `recurring_transactions` | regole ricorrenti: frequenza, prossima scadenza, giorno del mese di riferimento, attiva/disattiva |
 | `budgets` | tipo di periodo (`monthly`, `annual`, `annual-category`), anno, mese, categoria (`Totale` = complessivo), importo |
 | `categories` | nome, tipo, colore, icona |
+| `goals` / `goal_contributions` | obiettivi di risparmio e relativi versamenti (positivi) e prelievi (negativi) |
+| `settings` | impostazioni chiave/valore in JSON: conti (`account_tags`), pianificazione dei backup |
 
 ---
 

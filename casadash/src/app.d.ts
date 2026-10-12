@@ -7,6 +7,7 @@ declare global {
 				username: string;
 				displayName: string;
 				mustChangePassword: number;
+				role: 'admin' | 'member';
 			} | null;
 			/** Home Assistant Ingress prefix ("" when accessed directly). */
 			base: string;

@@ -89,6 +89,33 @@ db.exec(`
         icon TEXT NOT NULL,
         created_by INTEGER REFERENCES users(id)
     );
+
+    CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS goals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        target REAL NOT NULL,
+        deadline TEXT,
+        color TEXT NOT NULL DEFAULT '#4361ee',
+        icon TEXT NOT NULL DEFAULT 'fa-piggy-bank',
+        archived INTEGER NOT NULL DEFAULT 0,
+        created_by INTEGER REFERENCES users(id),
+        created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS goal_contributions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        goal_id INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+        amount REAL NOT NULL,
+        date TEXT NOT NULL,
+        note TEXT,
+        created_by INTEGER REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS goal_contributions_goal_idx ON goal_contributions(goal_id);
 `);
 
 try {
@@ -111,6 +138,12 @@ try {
 	}
 
 	const userTableInfo = db.prepare("PRAGMA table_info('users');").all();
+	if (!userTableInfo.some(col => col.name === 'role')) {
+		// Before roles everybody could do everything: the first account becomes the administrator
+		console.log("Applying structural update: ADD COLUMN role TO users");
+		db.prepare("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member';").run();
+		db.prepare("UPDATE users SET role = 'admin' WHERE id = (SELECT MIN(id) FROM users)").run();
+	}
 	if (!userTableInfo.some(col => col.name === 'must_change_password')) {
 		console.log("Applying structural update: ADD COLUMN must_change_password TO users");
 		db.prepare("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;").run();
@@ -123,6 +156,11 @@ try {
 	}
 
 	const rtTableInfo = db.prepare("PRAGMA table_info('recurring_transactions');").all();
+	if (!rtTableInfo.some(col => col.name === 'anchor_day')) {
+		console.log("Applying structural update: ADD COLUMN anchor_day TO recurring_transactions");
+		db.prepare("ALTER TABLE recurring_transactions ADD COLUMN anchor_day INTEGER;").run();
+		db.prepare("UPDATE recurring_transactions SET anchor_day = CAST(substr(next_date, 9, 2) AS INTEGER)").run();
+	}
 	const hasIsActive = rtTableInfo.some(col => col.name === 'is_active');
 	if (!hasIsActive) {
 		console.log("Applying structural update: ADD COLUMN is_active TO recurring_transactions");
@@ -145,7 +183,7 @@ const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
 if (userCount === 0) {
     console.log("No users found. Creating default admin account (admin / admin)");
     const hash = bcrypt.hashSync('admin', 10);
-    db.prepare('INSERT INTO users (username, password_hash, display_name, must_change_password) VALUES (?, ?, ?, 1)').run('admin', hash, 'Amministratore');
+    db.prepare("INSERT INTO users (username, password_hash, display_name, must_change_password, role) VALUES (?, ?, ?, 1, 'admin')").run('admin', hash, 'Amministratore');
 } else {
     console.log(`Found ${userCount} users. Skipping default creation.`);
     // Existing installs still on admin/admin must pick a new password at next login

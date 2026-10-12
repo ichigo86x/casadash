@@ -5,6 +5,7 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import Chart from 'chart.js/auto';
+	import { isTransferTags } from '$lib/transfers';
 	
 	let { data } = $props();
 
@@ -138,20 +139,28 @@
 
 	onMount(() => { renderChart(); renderLineChart(); });
 
+	// Percent change against the same period one year earlier ("" when there is nothing to compare)
+	function delta(current: number, previous: number): { text: string; up: boolean } | null {
+		if (!previous) return null;
+		const pct = ((current - previous) / previous) * 100;
+		return { text: `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`, up: pct >= 0 };
+	}
+
 	function exportToCsv() {
 		if (!data.transactions || data.transactions.length === 0) {
             alert("Nessuna traccia da esportare in questo periodo.");
             return;
         }
 
-		const headers = ['Data', 'Descrizione', 'Categoria', 'Tipologia', 'Importo', 'Metodo di Pagamento'];
+		const headers = ['Data', 'Descrizione', 'Categoria', 'Tipologia', 'Importo', 'Metodo di Pagamento', 'Tag'];
 		const rows = data.transactions.map((t: any) => [
 			t.date,
 			`"${(t.description || '').replace(/"/g, '""')}"`,
 			`"${(t.category || '').replace(/"/g, '""')}"`,
-			t.type === 'income' ? 'Entrata' : 'Uscita',
+			isTransferTags(t.tags) ? (t.type === 'income' ? 'Trasferimento in entrata' : 'Trasferimento in uscita') : t.type === 'income' ? 'Entrata' : 'Uscita',
 			t.amount.toString().replace('.', ','),
-			`"${t.paymentMethod}"`
+			`"${t.paymentMethod}"`,
+			`"${(() => { try { return JSON.parse(t.tags || '[]').join(', '); } catch { return ''; } })().replace(/"/g, '""')}"`
 		]);
 
 		const csvContent = [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
@@ -176,7 +185,10 @@
         		<button type="button" class="btn-primary" onclick={exportToCsv} style="display:flex; gap:8px; align-items:center; padding:10px 20px; border-radius:var(--radius-md); font-weight:600; cursor:pointer;">
             <i class="fas fa-file-csv"></i> Esporta in Excel / CSV
         </button>
-        <button type="button" onclick={() => { excludeCC = !excludeCC; applyFilters(); }} title="Escludi/Includi spese Carta di Credito non saldate" style="display:flex; gap:8px; align-items:center; padding:10px 20px; border-radius:var(--radius-md); font-weight:600; cursor:pointer; background:{excludeCC ? 'rgba(230, 126, 34, 0.15)' : 'var(--bg-card)'}; border:1px solid {excludeCC ? '#e67e22' : 'var(--border-color)'}; color:{excludeCC ? '#e67e22' : 'var(--text-primary)'}; transition:all 0.2s;">
+        <button type="button" class="btn-primary no-print" onclick={() => window.print()} style="display:flex; gap:8px; align-items:center; padding:10px 20px; border-radius:var(--radius-md); font-weight:600; cursor:pointer;" title="Stampa o salva il report come PDF">
+            <i class="fas fa-file-pdf"></i> Esporta PDF
+        </button>
+        <button type="button" class="no-print" onclick={() => { excludeCC = !excludeCC; applyFilters(); }} title="Escludi/Includi spese Carta di Credito non saldate" style="display:flex; gap:8px; align-items:center; padding:10px 20px; border-radius:var(--radius-md); font-weight:600; cursor:pointer; background:{excludeCC ? 'rgba(230, 126, 34, 0.15)' : 'var(--bg-card)'}; border:1px solid {excludeCC ? '#e67e22' : 'var(--border-color)'}; color:{excludeCC ? '#e67e22' : 'var(--text-primary)'}; transition:all 0.2s;">
             <i class="fas fa-credit-card"></i> {excludeCC ? 'Mostra CC non saldate' : 'Escludi CC non saldate'}
         </button>
 	</div>
@@ -348,6 +360,10 @@
 				<div class="card-content">
 					<h3>Entrate</h3>
 					<p class="amount income-amount">{formatEuro(data.summary.income)}</p>
+					{#if delta(data.summary.income, data.previous.income)}
+						{@const d = delta(data.summary.income, data.previous.income)!}
+						<p class="yoy" title="Stesso periodo un anno prima ({data.previous.label}): {formatEuro(data.previous.income)}">{d.text} vs {data.previous.label}</p>
+					{/if}
 				</div>
 			</div>
 			<div class="summary-card card-expense">
@@ -355,6 +371,10 @@
 				<div class="card-content">
 					<h3>Uscite</h3>
 					<p class="amount expense-amount">{formatEuro(data.summary.expense)}</p>
+					{#if delta(data.summary.expense, data.previous.expense)}
+						{@const d = delta(data.summary.expense, data.previous.expense)!}
+						<p class="yoy {d.up ? 'worse' : 'better'}" title="Stesso periodo un anno prima ({data.previous.label}): {formatEuro(data.previous.expense)}">{d.text} vs {data.previous.label}</p>
+					{/if}
 				</div>
 			</div>
 			<div class="summary-card card-balance">
@@ -371,6 +391,16 @@
 					<p class="amount">{data.transactions.length}</p>
 				</div>
 			</div>
+			{#if data.summary.transferCount > 0}
+			<div class="summary-card">
+				<div class="card-icon" style="background:rgba(52, 152, 219, 0.15); color:var(--accent-blue);"><i class="fas fa-exchange-alt"></i></div>
+				<div class="card-content">
+					<h3>Trasferimenti tra conti</h3>
+					<p class="amount transfer-amount">{formatEuro(data.summary.transfers)}</p>
+					<p class="yoy">{data.summary.transferCount} movimenti, esclusi da entrate e uscite</p>
+				</div>
+			</div>
+			{/if}
 		</div>
 
 		{#if data.budget > 0}
@@ -428,6 +458,10 @@
 							    {b.type === 'income' ? '+' : '-'}{formatEuro(b.total)}
 						    </span>
                         </div>
+                        {#if b.type === 'expense' && delta(b.total, data.previous.categoryExpense[b.category] || 0)}
+                            {@const d = delta(b.total, data.previous.categoryExpense[b.category] || 0)!}
+                            <span class="yoy {d.up ? 'worse' : 'better'}" title="{data.previous.label}: {formatEuro(data.previous.categoryExpense[b.category])}">{d.text} vs {data.previous.label}</span>
+                        {/if}
                         {#if b.type === 'expense' && data.categoryBudgets[b.category]}
                             {@const catBudget = data.categoryBudgets[b.category]}
                             {@const pct = (b.total / catBudget) * 100}
@@ -467,6 +501,7 @@
 					</thead>
 					<tbody>
 						{#each data.transactions as t}
+							{@const transfer = isTransferTags(t.tags)}
 							<tr class="transaction-row {t.type}-row">
 								<td data-label="Data">{formatDate(t.date)}</td>
 								<td data-label="Descrizione">
@@ -503,12 +538,16 @@
 									{/if}
 								</td>
 								<td data-label="Tipo">
+									{#if transfer}
+										<span class="type-badge type-transfer"><i class="fas fa-exchange-alt"></i> Trasferimento {t.type === 'income' ? 'in' : 'out'}</span>
+									{:else}
 									<span class="type-badge type-{t.type}">
 										<i class="fas fa-arrow-{t.type === 'income' ? 'down' : 'up'}"></i>
 										{t.type === 'income' ? 'Entrata' : 'Uscita'}
 									</span>
+									{/if}
 								</td>
-								<td data-label="Importo" class="amount {t.type === 'income' ? 'income-amount' : 'expense-amount'}">
+								<td data-label="Importo" class="amount {transfer ? 'transfer-amount' : t.type === 'income' ? 'income-amount' : 'expense-amount'}">
 									{t.type === 'income' ? '+' : '-'}{formatEuro(t.amount)}
 								</td>
 							</tr>
@@ -530,6 +569,9 @@
 </datalist>
 
 <style>
+.yoy { font-size:0.75rem; color:var(--text-muted); margin-top:4px; }
+.yoy.worse { color:var(--accent-red); }
+.yoy.better { color:var(--accent-green); }
 .tags-input-container { display:flex; flex-wrap:wrap; gap:4px; padding:4px 8px; border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-input); align-items:center; min-height:38px; }
 .tags-input-container input[type=text] { border:none; background:transparent; outline:none; flex:1; min-width:80px; color:var(--text-primary); padding:0; height:auto; }
 .tags-input-container input[type=text]:focus { outline:none; box-shadow:none; }

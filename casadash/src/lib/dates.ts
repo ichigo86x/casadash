@@ -15,16 +15,18 @@ function daysInMonth(year: number, monthIndex: number): number {
 export type Frequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
 /**
- * Next occurrence of a recurring date. Monthly and yearly steps clamp to the end of the
- * month instead of overflowing (31 Jan + 1 month = 28/29 Feb, not 3 Mar).
+ * Next occurrence of a recurring date. Monthly and yearly steps aim for `anchorDay` (the day
+ * the schedule was created for, default: the current day) and clamp to the end of shorter
+ * months: 31 Jan -> 28/29 Feb -> 31 Mar, never 3 Mar.
  */
-export function nextOccurrence(dateStr: string, frequency: string): string {
-	const [y, m, d] = dateStr.split('-').map(Number);
+export function nextOccurrence(dateStr: string, frequency: string, anchorDay?: number | null): string {
+	const [y, m, current] = dateStr.split('-').map(Number);
+	const d = anchorDay && anchorDay >= 1 && anchorDay <= 31 ? anchorDay : current;
 	switch (frequency) {
 		case 'daily':
-			return localDateString(new Date(y, m - 1, d + 1));
+			return localDateString(new Date(y, m - 1, current + 1));
 		case 'weekly':
-			return localDateString(new Date(y, m - 1, d + 7));
+			return localDateString(new Date(y, m - 1, current + 7));
 		case 'yearly':
 			return localDateString(new Date(y + 1, m - 1, Math.min(d, daysInMonth(y + 1, m - 1))));
 		case 'monthly':

@@ -87,6 +87,21 @@
             </div>
         </div>
     </div>
+
+    <!-- Accounts are plain tags: their balance is shown on the dashboard -->
+    <div class="form-section" style="margin-top:30px;">
+        <h2><i class="fas fa-university"></i> Conti</h2>
+        <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:15px;">
+            Elenca i tag che indicano dove sono i soldi, separati da virgola. Ad esempio: <code>BNL, Poste, Libretto</code>.
+            La dashboard mostra il saldo di ogni conto e li offre come tag rapidi.
+            Per spostare soldi tra due conti registra un'uscita dal primo e un'entrata nel secondo, entrambe con il tag <strong>Trasferimento</strong>:
+            cambiano i saldi dei conti ma non contano come entrate o uscite.
+        </p>
+        <form method="POST" action="?/setAccounts" use:enhance={() => async ({ update }) => update({ reset: false })} style="display:flex; gap:10px; flex-wrap:wrap;">
+            <input type="text" name="accounts" value={data.accountTags.join(', ')} placeholder="BNL, Poste, Libretto" style="flex:1; min-width:220px;">
+            <button type="submit" class="btn-submit" style="width:auto;"><i class="fas fa-save"></i> Salva conti</button>
+        </form>
+    </div>
 </div>
 
 <!-- Edit Category Modal -->

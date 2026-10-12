@@ -7,6 +7,7 @@ export const users = sqliteTable('users', {
 	totpSecret: text('totp_secret'),
 	displayName: text('display_name').notNull(),
 	mustChangePassword: integer('must_change_password').default(0).notNull(),
+	role: text('role').$type<'admin' | 'member'>().default('member').notNull(),
 	createdAt: text('created_at').notNull()
 });
 
@@ -48,6 +49,8 @@ export const recurringTransactions = sqliteTable('recurring_transactions', {
 	tags: text('tags').default('[]').notNull(),
 	frequency: text('frequency').$type<'monthly' | 'yearly'>().notNull(),
 	nextDate: text('next_date').notNull(),
+	// Day of month the schedule was created for, so 31st jobs return to the 31st after short months
+	anchorDay: integer('anchor_day'),
 	createdBy: integer('created_by').references(() => users.id).notNull(),
 	isActive: integer('is_active').default(1).notNull()
 });
@@ -69,5 +72,33 @@ export const categories = sqliteTable('categories', {
 	type: text('type').notNull(),
 	color: text('color').notNull(),
 	icon: text('icon').notNull(),
+	createdBy: integer('created_by').references(() => users.id)
+});
+
+// Key/value application settings (backup schedule, account tags, ...)
+export const settings = sqliteTable('settings', {
+	key: text('key').primaryKey(),
+	value: text('value').notNull()
+});
+
+export const goals = sqliteTable('goals', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	name: text('name').notNull(),
+	target: real('target').notNull(),
+	deadline: text('deadline'),
+	color: text('color').default('#4361ee').notNull(),
+	icon: text('icon').default('fa-piggy-bank').notNull(),
+	archived: integer('archived').default(0).notNull(),
+	createdBy: integer('created_by').references(() => users.id),
+	createdAt: text('created_at').notNull()
+});
+
+// Money put into (positive) or taken out of (negative) a savings goal
+export const goalContributions = sqliteTable('goal_contributions', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	goalId: integer('goal_id').references(() => goals.id, { onDelete: 'cascade' }).notNull(),
+	amount: real('amount').notNull(),
+	date: text('date').notNull(),
+	note: text('note'),
 	createdBy: integer('created_by').references(() => users.id)
 });

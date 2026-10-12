@@ -8,6 +8,8 @@ export const DATA_DIR = path.resolve(env.DATA_DIR || (env.DATABASE_URL ? path.di
 export const DATABASE_PATH = path.resolve(env.DATABASE_URL || path.join(DATA_DIR, 'cdash.db'));
 export const UPLOADS_DIR = path.resolve(env.UPLOADS_DIR || path.join(DATA_DIR, 'uploads'));
 export const RECEIPTS_DIR = path.join(UPLOADS_DIR, 'receipts');
+// Scheduled backups. The Home Assistant add-on points this to /share/casadash/backups (see run.sh).
+export const BACKUP_DIR = path.resolve(env.BACKUP_DIR || path.join(DATA_DIR, 'backups'));
 
 // Exit code the launcher (start.mjs) treats as "restart me", used after a backup restore.
 export const RESTART_EXIT_CODE = 75;

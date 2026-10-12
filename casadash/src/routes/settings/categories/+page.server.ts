@@ -3,13 +3,27 @@ import { categories, transactions } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
+import { getSetting, setSetting } from '$lib/server/settings';
+import { TRANSFER_TAG } from '$lib/transfers';
 
 export const load: PageServerLoad = async () => {
     const list = await db.select().from(categories).orderBy(categories.type, categories.name);
-    return { categories: list };
+    const accountTags = await getSetting<string[]>('account_tags', []);
+    return { categories: list, accountTags };
 };
 
 export const actions: Actions = {
+    setAccounts: async ({ request, locals }) => {
+        if (!locals.user) return fail(401, { error: 'Non autorizzato' });
+        const data = await request.formData();
+        // Comma-separated list of the tags that name an account (e.g. "BNL, Poste, Libretto")
+        const tags = (data.get('accounts')?.toString() || '')
+            .split(',')
+            .map((t) => t.trim())
+            .filter((t, i, all) => t && all.indexOf(t) === i && t.toLowerCase() !== TRANSFER_TAG.toLowerCase());
+        await setSetting('account_tags', tags);
+        return { accountsSaved: true };
+    },
     addCategory: async ({ request, locals }) => {
         if (!locals.user) return fail(401, { error: 'Non autorizzato' });
         const data = await request.formData();

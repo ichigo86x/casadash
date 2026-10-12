@@ -58,6 +58,9 @@
             <a href="{base}/settings/budgets" class="nav-link {routeId.startsWith('/settings/budgets') ? 'active' : ''}">
                 <i class="fas fa-bullseye"></i> <span>Budget</span>
             </a>
+            <a href="{base}/goals" class="nav-link {routeId.startsWith('/goals') ? 'active' : ''}">
+                <i class="fas fa-piggy-bank"></i> <span>Obiettivi</span>
+            </a>
             <a href="{base}/settings/recurring" class="nav-link {routeId.startsWith('/settings/recurring') ? 'active' : ''}">
                 <i class="fas fa-sync-alt"></i> <span>Ricorrenti</span>
             </a>
@@ -67,9 +70,11 @@
             <a href="{base}/settings/mfa" class="nav-link {routeId.startsWith('/settings/mfa') ? 'active' : ''}">
                 <i class="fas fa-shield-alt"></i> <span>MFA</span>
             </a>
+            {#if data.user?.role === 'admin'}
             <a href="{base}/settings/backup" class="nav-link {routeId.startsWith('/settings/backup') ? 'active' : ''}">
                 <i class="fas fa-archive"></i> <span>Dati</span>
             </a>
+            {/if}
         </div>
         <div class="nav-right" style="display:flex; align-items:center; gap:5px;">
             <button class="nav-link" onclick={() => window.location.reload()} style="background:none; border:none; cursor:pointer;" title="Ricarica Pagina">

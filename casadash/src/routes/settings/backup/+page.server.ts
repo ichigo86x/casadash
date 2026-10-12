@@ -1,10 +1,13 @@
 import { fail } from '@sveltejs/kit';
-import type { Actions } from './$types';
+import type { Actions, PageServerLoad } from './$types';
 import fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
 import { client } from '$lib/server/db';
-import { DATABASE_PATH, RESTART_EXIT_CODE, UPLOADS_DIR } from '$lib/server/config';
+import { BACKUP_DIR, DATABASE_PATH, RESTART_EXIT_CODE, UPLOADS_DIR } from '$lib/server/config';
+import { DEFAULT_SCHEDULE, backupFilePath, listBackups, saveBackup, type BackupSchedule } from '$lib/server/backup';
+import { getSetting, setSetting } from '$lib/server/settings';
+import { requireAdmin } from '$lib/server/roles';
 
 const SQLITE_HEADER = Buffer.from('SQLite format 3\0', 'latin1');
 
@@ -15,9 +18,50 @@ function uploadDestination(entryName: string): string | null {
     return dest.startsWith(UPLOADS_DIR + path.sep) ? dest : null;
 }
 
+export const load: PageServerLoad = async () => {
+    return {
+        schedule: await getSetting<BackupSchedule>('backup_schedule', DEFAULT_SCHEDULE),
+        lastBackup: await getSetting<string | null>('backup_last', null),
+        backups: listBackups(),
+        backupDir: BACKUP_DIR
+    };
+};
+
 export const actions: Actions = {
+    saveSchedule: async ({ request, locals }) => {
+        const denied = requireAdmin(locals);
+        if (denied) return denied;
+        const data = await request.formData();
+        const keep = Math.min(100, Math.max(1, parseInt(data.get('keep')?.toString() || '8') || 8));
+        await setSetting('backup_schedule', {
+            enabled: data.get('enabled') === 'on',
+            frequency: data.get('frequency') === 'daily' ? 'daily' : 'weekly',
+            keep
+        } satisfies BackupSchedule);
+        return { scheduleSaved: true };
+    },
+    runNow: async ({ locals }) => {
+        const denied = requireAdmin(locals);
+        if (denied) return denied;
+        const schedule = await getSetting<BackupSchedule>('backup_schedule', DEFAULT_SCHEDULE);
+        try {
+            const name = await saveBackup(schedule.keep);
+            return { backupCreated: name };
+        } catch (e: any) {
+            return fail(500, { error: 'Backup non riuscito: ' + e.message });
+        }
+    },
+    deleteBackup: async ({ request, locals }) => {
+        const denied = requireAdmin(locals);
+        if (denied) return denied;
+        const file = backupFilePath((await request.formData()).get('name')?.toString() || '');
+        if (!file) return fail(404, { error: 'Backup non trovato' });
+        fs.rmSync(file, { force: true });
+        return { backupDeleted: true };
+    },
     restore: async ({ request, locals }) => {
-        if (!locals.user) return fail(401, { error: 'Non autorizzato' });
+        const denied = requireAdmin(locals);
+        if (denied) return denied;
 
         const data = await request.formData();
         const file = data.get('backup') as File | null;

@@ -6,7 +6,9 @@
 	import { base } from '$app/paths';
     import { enhance } from '$app/forms';
 
-    let { form } = $props();
+    let { data, form } = $props();
+    const formatSize = (b: number) => b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
+    const formatWhen = (iso: string) => new Date(iso).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
     let restoring = $state(false);
 </script>
 
@@ -64,5 +66,61 @@
             </form>
             {/if}
         </div>
+    </div>
+
+    <!-- Automatic backups -->
+    <div class="budget-card" style="padding:25px; border-radius:12px;">
+        <h3 style="margin-top:0; color:var(--accent-blue);"><i class="fas fa-clock"></i> Backup automatici</h3>
+        {#if form?.scheduleSaved}<p style="color:var(--accent-green);"><i class="fas fa-check"></i> Pianificazione salvata.</p>{/if}
+        {#if form?.backupCreated}<p style="color:var(--accent-green);"><i class="fas fa-check"></i> Creato {form.backupCreated}.</p>{/if}
+        <form method="POST" action="?/saveSchedule" use:enhance={() => async ({ update }) => update({ reset: false })} style="display:flex; gap:15px; flex-wrap:wrap; align-items:flex-end;">
+            <label style="display:flex; gap:8px; align-items:center;">
+                <input type="checkbox" name="enabled" checked={data.schedule.enabled}> Attivi
+            </label>
+            <div class="form-group" style="margin:0;">
+                <label for="frequency">Frequenza</label>
+                <select id="frequency" name="frequency" value={data.schedule.frequency}>
+                    <option value="daily">Ogni giorno</option>
+                    <option value="weekly">Ogni settimana</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin:0;">
+                <label for="keep">Copie da tenere</label>
+                <input id="keep" type="number" name="keep" min="1" max="100" value={data.schedule.keep} style="width:90px;">
+            </div>
+            <button type="submit" class="btn-submit" style="width:auto;"><i class="fas fa-save"></i> Salva</button>
+        </form>
+        <p style="color:var(--text-muted); font-size:0.85rem; margin-top:12px;">
+            Cartella: <code>{data.backupDir}</code>
+            {#if data.lastBackup} · Ultimo backup automatico: {formatWhen(data.lastBackup)}{/if}
+        </p>
+
+        <form method="POST" action="?/runNow" use:enhance style="margin-top:10px;">
+            <button type="submit" class="btn-submit" style="width:auto; background:var(--accent-blue-light); color:var(--text-primary);"><i class="fas fa-play"></i> Esegui backup ora</button>
+        </form>
+
+        {#if data.backups.length > 0}
+        <div class="table-responsive" style="margin-top:20px;">
+            <table>
+                <thead><tr><th>File</th><th>Data</th><th>Dimensione</th><th>Azioni</th></tr></thead>
+                <tbody>
+                    {#each data.backups as b}
+                    <tr>
+                        <td style="font-family:monospace; font-size:0.8rem;">{b.name}</td>
+                        <td>{formatWhen(b.createdAt)}</td>
+                        <td>{formatSize(b.size)}</td>
+                        <td style="display:flex; gap:8px;">
+                            <a href="{base}/api/backup/files/{b.name}" title="Scarica" data-sveltekit-reload><i class="fas fa-download"></i></a>
+                            <form method="POST" action="?/deleteBackup" use:enhance={({ cancel }) => { if (!confirm(`Eliminare ${b.name}?`)) cancel(); }} style="margin:0;">
+                                <input type="hidden" name="name" value={b.name}>
+                                <button class="delete-btn" title="Elimina"><i class="fas fa-trash-alt"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    {/each}
+                </tbody>
+            </table>
+        </div>
+        {/if}
     </div>
 </div>

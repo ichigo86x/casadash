@@ -2,6 +2,8 @@
 	import { base } from '$app/paths';
 	import { localDateString } from '$lib/dates';
 	import { enhance } from '$app/forms';
+	import { goto } from '$app/navigation';
+	import { isTransferTags, TRANSFER_TAG } from '$lib/transfers';
 	import { onMount } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import Chart from 'chart.js/auto';
@@ -27,6 +29,13 @@
 	let currentTags: string[] = $state([]);
 	let editTags: string[] = $state([]);
 
+	// Adds or removes a tag in place (the arrays are $state proxies)
+	function toggleTag(tags: string[], tag: string) {
+		const i = tags.indexOf(tag);
+		if (i >= 0) tags.splice(i, 1);
+		else tags.push(tag);
+	}
+
 	function handleTagInput(e: KeyboardEvent, isEdit = false) {
 		if (e.key === 'Enter' || e.key === ',') {
 			e.preventDefault();
@@ -39,47 +48,47 @@
 		}
 	}
 
-    // Pagination & Search State
-    let currentPage = $state(1);
-    let itemsPerPage = $state(15);
-	
-    // Search State
-    let showSearch = $state(false);
-    let searchTerm = $state('');
-    let searchCategory = $state('');
-    let searchType = $state('');
-    let searchMinAmount = $state<number | null>(null);
-    let searchMaxAmount = $state<number | null>(null);
-    let searchFromDate = $state('');
-    let searchToDate = $state('');
-    let searchAttachment = $state('');
+    // Search & pagination run on the server: state mirrors the URL query (?q=&cat=&page=...)
+    const lf = data.list;
+    let itemsPerPage = $state(lf.size);
+    let showSearch = $state(!!(lf.q || lf.category || lf.type || lf.paymentMethod || lf.account || lf.min !== null || lf.max !== null || lf.from || lf.to || lf.attachment));
+    let searchTerm = $state(lf.q);
+    let searchCategory = $state(lf.category);
+    let searchType = $state(lf.type);
+    let searchPayment = $state(lf.paymentMethod);
+    let searchAccount = $state(lf.account);
+    let searchMinAmount = $state<number | null>(lf.min);
+    let searchMaxAmount = $state<number | null>(lf.max);
+    let searchFromDate = $state(lf.from);
+    let searchToDate = $state(lf.to);
+    let searchAttachment = $state(lf.attachment);
 
-    let filteredTransactions = $derived(
-        data.allTransactions.filter(t => {
-            if (searchTerm && !t.description.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-            if (searchCategory && t.category !== searchCategory) return false;
-            if (searchType && t.type !== searchType) return false;
-            if (searchMinAmount !== null && t.amount < searchMinAmount) return false;
-            if (searchMaxAmount !== null && t.amount > searchMaxAmount) return false;
-            if (searchFromDate && t.date < searchFromDate) return false;
-            if (searchToDate && t.date > searchToDate) return false;
-            if (searchAttachment === 'with' && !t.receiptPath) return false;
-            if (searchAttachment === 'without' && t.receiptPath) return false;
-            return true;
-        })
-    );
+    function listUrl(page: number) {
+        const params = new URLSearchParams();
+        const set = (k: string, v: string | number | null | undefined) => { if (v !== null && v !== undefined && v !== '') params.set(k, String(v)); };
+        set('q', searchTerm.trim()); set('cat', searchCategory); set('type', searchType);
+        set('pay', searchPayment); set('account', searchAccount);
+        set('min', searchMinAmount); set('max', searchMaxAmount);
+        set('from', searchFromDate); set('to', searchToDate); set('att', searchAttachment);
+        if (itemsPerPage !== 15) set('size', itemsPerPage);
+        if (page > 1) set('page', page);
+        const qs = params.toString();
+        return qs ? `?${qs}` : `${base}/`;
+    }
 
-	let paginatedTransactions = $derived(
-		filteredTransactions.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-	);
-	let totalPages = $derived(
-		Math.ceil(filteredTransactions.length / itemsPerPage)
-	);
+    function goToPage(page: number) {
+        goto(listUrl(page), { keepFocus: true, noScroll: true, replaceState: true });
+    }
 
-    // Reset page when filters change
+    // Any filter change reloads page 1 (debounced, so typing does not fire a request per key)
+    let filterTimer: ReturnType<typeof setTimeout> | undefined;
+    let filtersReady = false;
     $effect(() => {
-        searchTerm; searchCategory; searchType; searchMinAmount; searchMaxAmount; searchFromDate; searchToDate; searchAttachment;
-        currentPage = 1;
+        searchTerm; searchCategory; searchType; searchPayment; searchAccount; searchMinAmount; searchMaxAmount;
+        searchFromDate; searchToDate; searchAttachment; itemsPerPage;
+        if (!filtersReady) { filtersReady = true; return; }
+        clearTimeout(filterTimer);
+        filterTimer = setTimeout(() => goToPage(1), 350);
     });
 
     function editTransaction(t: any) {
@@ -313,6 +322,60 @@
 	{/if}
 
 
+	<!-- This month: budget, end-of-month forecast, account balances -->
+	<div class="month-panel">
+		<div class="month-card">
+			<h3><i class="fas fa-calendar-check"></i> {italianMonths[data.currentMonth - 1]} {data.currentYear}</h3>
+			<div class="month-figures">
+				<div><span class="label">Spese finora</span><strong class="expense-amount">{formatEuro(data.summary.monthExpenses)}</strong></div>
+				<div><span class="label">Entrate</span><strong class="income-amount">{formatEuro(data.summary.monthIncome)}</strong></div>
+				<div title="Spese finora + stesso ritmo giornaliero per i giorni rimanenti + ricorrenti ancora da addebitare">
+					<span class="label">Previsione fine mese</span>
+					<strong class={data.budget.monthly > 0 && data.forecast.expense > data.budget.monthly ? 'expense-amount' : ''}>{formatEuro(data.forecast.expense)}</strong>
+				</div>
+			</div>
+			{#if data.budget.monthly > 0}
+				{@const pct = (data.summary.monthExpenses / data.budget.monthly) * 100}
+				{@const forecastPct = Math.min((data.forecast.expense / data.budget.monthly) * 100, 100)}
+				<div class="budget-bar" style="position:relative; margin-top:12px;">
+					<div class="budget-bar-fill {pct > 90 ? 'danger' : pct > 70 ? 'warning' : 'ok'}" style="width:{Math.min(pct, 100)}%"></div>
+					<div class="forecast-marker" style="left:{forecastPct}%" title="Previsione fine mese"></div>
+				</div>
+				<p class="month-note">
+					{pct.toFixed(0)}% del budget di {formatEuro(data.budget.monthly)} · giorno {data.forecast.dayOfMonth} di {data.forecast.daysInMonth}
+					{#if data.forecast.expense > data.budget.monthly}
+						· <span class="expense-amount">a questo ritmo sfori di {formatEuro(data.forecast.expense - data.budget.monthly)}</span>
+					{/if}
+				</p>
+			{:else}
+				<p class="month-note">Imposta un budget mensile in <a href="{base}/settings/budgets">Budget</a> per confrontare la previsione.</p>
+			{/if}
+			{#if data.forecast.pendingRecurring > 0}
+				<p class="month-note"><i class="fas fa-sync-alt"></i> Ricorrenti ancora da addebitare questo mese: {formatEuro(data.forecast.pendingRecurring)}</p>
+			{/if}
+			{#each data.budget.warnings as w}
+				<p class="month-note" style="color:{w.pct >= 100 ? 'var(--accent-red)' : 'var(--accent-orange, #e67e22)'}">
+					<i class="fas fa-exclamation-triangle"></i> {w.category}: {formatEuro(w.spent)} su {formatEuro(w.limit)} ({w.pct.toFixed(0)}%)
+				</p>
+			{/each}
+		</div>
+
+		{#if data.accounts.length > 0}
+		<div class="month-card">
+			<h3><i class="fas fa-university"></i> Saldi per conto</h3>
+			<div class="accounts">
+				{#each data.accounts as a}
+					<button type="button" class="account" onclick={() => { searchAccount = a.tag; showSearch = true; }} title="Mostra i movimenti di {a.tag}">
+						<span class="label">{a.tag}</span>
+						<strong class={a.balance < 0 ? 'expense-amount' : ''}>{formatEuro(a.balance)}</strong>
+					</button>
+				{/each}
+			</div>
+			<p class="month-note">Somma di entrate e uscite con il tag del conto, trasferimenti inclusi.</p>
+		</div>
+		{/if}
+	</div>
+
 	<!-- Main Content -->
 	<div class="main-content">
 		<!-- Form Section -->
@@ -368,6 +431,14 @@
 						{/each}
 						<input type="text" placeholder="Aggiungi tag..." list="tags_list" onkeydown={(e) => handleTagInput(e, false)}>
 						<input type="hidden" name="tags" value={JSON.stringify(currentTags)}>
+					</div>
+					<div class="quick-tags">
+						<button type="button" class="quick-tag {currentTags.includes(TRANSFER_TAG) ? 'on' : ''}" onclick={() => toggleTag(currentTags, TRANSFER_TAG)} title="Spostamento tra conti: non conta come entrata o uscita">
+							<i class="fas fa-exchange-alt"></i> {TRANSFER_TAG}
+						</button>
+						{#each data.accounts as a}
+							<button type="button" class="quick-tag {currentTags.includes(a.tag) ? 'on' : ''}" onclick={() => toggleTag(currentTags, a.tag)}>{a.tag}</button>
+						{/each}
 					</div>
 				</div>
 
@@ -471,7 +542,7 @@
 				</button>
 				<div style="display:flex; gap:8px; align-items:center;">
 					<span>Mostra:</span>
-					<select bind:value={itemsPerPage} onchange={() => currentPage = 1} style="padding:4px; border-radius:4px; background:var(--bg-input); color:var(--text-primary); border:1px solid var(--border-color);">
+					<select bind:value={itemsPerPage} style="padding:4px; border-radius:4px; background:var(--bg-input); color:var(--text-primary); border:1px solid var(--border-color);">
 						<option value={10}>10</option>
 						<option value={15}>15</option>
 						<option value={25}>25</option>
@@ -507,8 +578,29 @@
 						<option value="">Tutti</option>
 						<option value="income">Solo Entrate</option>
 						<option value="expense">Solo Uscite</option>
+						<option value="transfer">Solo Trasferimenti</option>
 					</select>
 				</div>
+				<div class="search-field">
+					<label for="search_pay">Metodo di pagamento</label>
+					<select id="search_pay" bind:value={searchPayment}>
+						<option value="">Tutti</option>
+						<option value="bancomat">Conto / Bancomat</option>
+						<option value="credit_card">Carta di Credito</option>
+						<option value="cash">Contanti</option>
+					</select>
+				</div>
+				{#if data.accounts.length > 0}
+				<div class="search-field">
+					<label for="search_account">Conto</label>
+					<select id="search_account" bind:value={searchAccount}>
+						<option value="">Tutti</option>
+						{#each data.accounts as a}
+							<option value={a.tag}>{a.tag}</option>
+						{/each}
+					</select>
+				</div>
+				{/if}
 				<div class="search-field">
 					<label for="search_min">Importo Min</label>
 					<input id="search_min" type="number" step="0.01" bind:value={searchMinAmount} placeholder="€">
@@ -535,7 +627,7 @@
 				</div>
 				<div class="search-actions">
 					<button type="button" class="btn-clear-filters" onclick={() => {
-						searchTerm = ''; searchCategory = ''; searchType = '';
+						searchTerm = ''; searchCategory = ''; searchType = ''; searchPayment = ''; searchAccount = '';
 						searchMinAmount = null; searchMaxAmount = null;
 						searchFromDate = ''; searchToDate = ''; searchAttachment = '';
 					}}>
@@ -545,7 +637,7 @@
 			</div>
 		</div>
 		{/if}
-		{#if data.allTransactions.length === 0}
+		{#if data.transactionCount === 0}
 			<p class="no-transactions">Nessuna transazione registrata. Inizia aggiungendo la prima!</p>
 		{:else}
 			<div class="table-responsive">
@@ -562,7 +654,8 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each paginatedTransactions as t}
+						{#each data.transactions as t}
+						{@const transfer = isTransferTags(t.tags)}
 						<tr class="transaction-row {t.type}-row">
 							<td data-label="Data">{formatDate(t.date)}</td>
 							<td data-label="Descrizione">
@@ -603,12 +696,19 @@
 								{/if}
 							</td>
 							<td data-label="Tipo">
+								{#if transfer}
+									<span class="type-badge type-transfer" title="Spostamento tra conti: non conta come entrata o uscita">
+										<i class="fas fa-exchange-alt"></i>
+										Trasferimento {t.type === 'income' ? 'in' : 'out'}
+									</span>
+								{:else}
 								<span class="type-badge type-{t.type}">
 									<i class="fas fa-arrow-{t.type === 'income' ? 'down' : 'up'}"></i>
 									{t.type === 'income' ? 'Entrata' : 'Uscita'}
 								</span>
+								{/if}
 							</td>
-							<td data-label="Importo" class="amount {t.type === 'income' ? 'income-amount' : 'expense-amount'}">
+							<td data-label="Importo" class="amount {transfer ? 'transfer-amount' : t.type === 'income' ? 'income-amount' : 'expense-amount'}">
 								{t.type === 'income' ? '+' : '-'}{formatEuro(t.amount)}
 							</td>
 							<td data-label="Azioni" style="display:flex; gap:8px; border:none;">
@@ -629,10 +729,10 @@
 			</div>
 
 			<div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; font-size:0.9rem; color:var(--text-muted);">
-				<span>Pagina {currentPage} di {totalPages}</span>
+				<span>Pagina {data.list.page} di {data.list.totalPages} · {data.list.total} movimenti</span>
 				<div style="display:flex; gap:10px;">
-					<button disabled={currentPage === 1} onclick={() => currentPage--} style="padding:6px 12px; background:var(--bg-card); border:1px solid var(--border-color); color:var(--text-primary); border-radius:4px; cursor:pointer; opacity: {currentPage === 1 ? '0.5' : '1'};">Precedente</button>
-					<button disabled={currentPage === totalPages} onclick={() => currentPage++} style="padding:6px 12px; background:var(--bg-card); border:1px solid var(--border-color); color:var(--text-primary); border-radius:4px; cursor:pointer; opacity: {currentPage === totalPages ? '0.5' : '1'};">Successivo</button>
+					<button disabled={data.list.page === 1} onclick={() => goToPage(data.list.page - 1)} style="padding:6px 12px; background:var(--bg-card); border:1px solid var(--border-color); color:var(--text-primary); border-radius:4px; cursor:pointer; opacity: {data.list.page === 1 ? '0.5' : '1'};">Precedente</button>
+					<button disabled={data.list.page >= data.list.totalPages} onclick={() => goToPage(data.list.page + 1)} style="padding:6px 12px; background:var(--bg-card); border:1px solid var(--border-color); color:var(--text-primary); border-radius:4px; cursor:pointer; opacity: {data.list.page >= data.list.totalPages ? '0.5' : '1'};">Successivo</button>
 				</div>
 			</div>
 		{/if}
@@ -683,6 +783,14 @@
                     {/each}
                     <input type="text" placeholder="Tag..." list="tags_list" onkeydown={(e) => handleTagInput(e, true)}>
                     <input type="hidden" name="tags" value={JSON.stringify(editTags)}>
+                </div>
+                <div class="quick-tags">
+                    <button type="button" class="quick-tag {editTags.includes(TRANSFER_TAG) ? 'on' : ''}" onclick={() => toggleTag(editTags, TRANSFER_TAG)} title="Spostamento tra conti: non conta come entrata o uscita">
+                        <i class="fas fa-exchange-alt"></i> {TRANSFER_TAG}
+                    </button>
+                    {#each data.accounts as a}
+                        <button type="button" class="quick-tag {editTags.includes(a.tag) ? 'on' : ''}" onclick={() => toggleTag(editTags, a.tag)}>{a.tag}</button>
+                    {/each}
                 </div>
             </div>
 
@@ -774,6 +882,23 @@
 </datalist>
 
 <style>
+	.quick-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+	.quick-tag { font-size:0.75rem; padding:3px 10px; border-radius:14px; border:1px dashed var(--border-color); background:none; color:var(--text-muted); cursor:pointer; }
+	.quick-tag.on { border-style:solid; border-color:var(--accent-blue); color:var(--accent-blue); background:rgba(67, 97, 238, 0.1); }
+	.month-panel { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:20px; margin-bottom:30px; }
+	.month-card { background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg, 12px); padding:20px; }
+	.month-card h3 { margin:0 0 14px; font-size:1rem; display:flex; gap:8px; align-items:center; }
+	.month-figures { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }
+	.month-figures div, .account { display:flex; flex-direction:column; gap:4px; }
+	.month-figures strong, .account strong { font-size:1.15rem; }
+	.label { font-size:0.75rem; color:var(--text-muted); }
+	.month-note { font-size:0.8rem; color:var(--text-muted); margin-top:8px; }
+	.forecast-marker { position:absolute; top:-3px; bottom:-3px; width:3px; background:var(--text-primary); border-radius:2px; opacity:0.7; }
+	.accounts { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:12px; }
+	.account { background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; cursor:pointer; text-align:left; color:var(--text-primary); }
+	.account:hover { border-color:var(--accent-blue); }
+	@media (max-width: 600px) { .month-figures { grid-template-columns:1fr 1fr; } }
+
 .tags-input-container { display:flex; flex-wrap:wrap; gap:8px; padding:8px; border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-input); align-items:center; }
 .tags-input-container input[type=text] { border:none; background:transparent; outline:none; flex:1; min-width:120px; color:var(--text-primary); padding:0; height:auto; }
 .tags-input-container input[type=text]:focus { outline:none; box-shadow:none; }

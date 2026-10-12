@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.3.0
+
+### Novità
+- **Trasferimenti tra conti:** i movimenti con il tag `Trasferimento` non contano come entrate o uscite in totali, grafici, budget, previsioni e report. Restano visibili con un badge dedicato e sono riassunti a parte nei report.
+- **Conti:** in *Categorie → Conti* indichi i tag che rappresentano i conti (es. `BNL, Poste, Libretto`). La dashboard mostra il saldo di ciascun conto, e i conti compaiono come tag rapidi e come filtro.
+- **Obiettivi di risparmio:** nuova pagina *Obiettivi* con importo da raggiungere, scadenza facoltativa, versamenti e prelievi, e quota mensile necessaria.
+- **Previsione di fine mese** in dashboard: spese finora, stesso ritmo per i giorni rimanenti e ricorrenti ancora da addebitare, confrontati con il budget mensile. In dashboard compaiono anche gli avvisi sulle categorie oltre l'80% del budget.
+- **Report:**
+  - confronto con lo stesso periodo dell'anno precedente, sui totali e per categoria;
+  - esportazione PDF;
+  - tag e trasferimenti inclusi nel CSV.
+- **Backup automatici** giornalieri o settimanali, con numero di copie da tenere, esecuzione manuale, download ed eliminazione. Nell'add-on finiscono in `/share/casadash/backups`.
+- **Ruoli:** *Amministratore* e *Membro*. Solo gli amministratori gestiscono utenti, backup e ripristino. Dopo l'aggiornamento il primo account creato diventa amministratore e gli altri diventano membri.
+- **Ricerca in dashboard:** nuovi filtri per metodo di pagamento, conto e trasferimenti.
+
+### Miglioramenti
+- **Dashboard più veloce:** totali e grafici calcolati dal database, e la lista è paginata dal server invece di caricare tutti i movimenti. I filtri della lista restano nell'indirizzo della pagina.
+- **Ricorrenti del 31:** tornano al 31 dopo i mesi più corti (31/1 → 28/2 → 31/3). Per i ricorrenti già esistenti il giorno di riferimento è quello della prossima scadenza attuale; modificali per reimpostarlo.
+- Ricorrenti, pulizia delle sessioni e backup girano ogni ora in background, anche senza nessuno che apre l'app.
+- Report: una categoria presente sia tra le entrate sia tra le uscite (es. *Altro*) non viene più sommata in un'unica voce.
+
 ## 1.2.1
 - L'add-on scarica l'immagine già pronta da GitHub Container Registry invece di compilarla su Home Assistant. Installazioni e aggiornamenti richiedono pochi secondi.
 
