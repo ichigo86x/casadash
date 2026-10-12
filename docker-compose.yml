@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  casadash:
+    build: .
+    container_name: casadash
+    restart: unless-stopped
+    ports:
+      - "8099:8099"
+    environment:
+      - PORT=8099
+    volumes:
+      - casadash_data:/data
+
+volumes:
+  casadash_data:
