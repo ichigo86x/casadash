@@ -1,14 +1,16 @@
-version: '3.8'
-
 services:
   casadash:
-    build: .
+    build: ./casadash
+    # Or use the prebuilt image once published:
+    # image: ghcr.io/ichigo86x/casadash:latest
     container_name: casadash
     restart: unless-stopped
     ports:
       - "8099:8099"
     environment:
-      - PORT=8099
+      - TZ=Europe/Rome
+      # Set to "true" when CasaDash is only reached through an HTTPS reverse proxy
+      - COOKIE_SECURE=auto
     volumes:
       - casadash_data:/data
 

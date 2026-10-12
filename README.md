@@ -2,9 +2,11 @@
 
 CasaDash è un'applicazione web self-hosted per la gestione del budget familiare: registra entrate e uscite, imposta budget mensili e annuali per categoria, automatizza le spese ricorrenti e produce report filtrabili ed esportabili.
 
-È scritta in **SvelteKit** (Svelte 5, Node.js) con database **SQLite** ed è nata come porting di una precedente versione PHP. Oggi è confezionata come **add-on per Home Assistant**, ma gira anche come container Docker standalone o direttamente su una macchina con Node.js (vedi [Installazione](#installazione)).
+È scritta in **SvelteKit** (Svelte 5, Node.js) con database **SQLite**, ed è nata come porting di una precedente versione PHP. Lo stesso codice funziona in tre modi:
 
-> **Stato:** progetto personale in sviluppo attivo. Leggi la sezione [Sicurezza](#sicurezza-e-limiti-noti) prima di esporre l'app fuori dalla rete di casa.
+- come **add-on di Home Assistant**, con accesso dal pannello laterale tramite Ingress;
+- come **container Docker** standalone;
+- **direttamente** su una macchina con Node.js.
 
 ---
 
@@ -12,7 +14,7 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 
 - [Funzionalità](#funzionalità)
 - [Stack tecnologico](#stack-tecnologico)
-- [Struttura del progetto](#struttura-del-progetto)
+- [Struttura del repository](#struttura-del-repository)
 - [Installazione](#installazione)
   - [Add-on Home Assistant](#1-add-on-home-assistant)
   - [Docker / Docker Compose](#2-docker--docker-compose)
@@ -22,7 +24,8 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 - [Dati, backup e ripristino](#dati-backup-e-ripristino)
 - [Modello dati](#modello-dati)
 - [Sviluppo](#sviluppo)
-- [Sicurezza e limiti noti](#sicurezza-e-limiti-noti)
+- [Rilasci](#rilasci)
+- [Sicurezza](#sicurezza)
 
 ---
 
@@ -77,20 +80,24 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 ### Famiglia / Utenti (`/settings/users`)
 - Più utenti per nucleo familiare: tutti vedono e gestiscono gli stessi dati.
 - Aggiunta ed eliminazione degli utenti. I dati di un utente eliminato passano a chi lo elimina.
+- Un nuovo utente deve scegliere una password personale al primo accesso.
 
 ### Profilo e sicurezza
-- **Profilo** (`/settings/profile`): modifica del nome visualizzato e della password.
+- **Profilo** (`/settings/profile`): modifica del nome visualizzato e della password. Il cambio password disconnette gli altri dispositivi.
 - **Autenticazione a due fattori** (`/settings/mfa`): TOTP compatibile con Google Authenticator, Authy e simili, attivabile tramite QR code.
 - Password salvate con **bcrypt**; sono accettati anche gli hash `$2y$` della vecchia versione PHP.
+- Sessioni lato server con token casuale e blocco temporaneo dopo 5 tentativi di accesso falliti.
 
 ### Backup (`/settings/backup`)
 - **Download** di un archivio ZIP con il database SQLite e tutte le ricevute caricate.
-- **Ripristino** da un archivio ZIP di CasaDash. Dopo il ripristino il processo termina e deve essere riavviato dal supervisore (Home Assistant, Docker `restart` o systemd).
+- **Ripristino** da un archivio ZIP di CasaDash, con riavvio automatico dell'applicazione. L'archivio viene convalidato prima di sovrascrivere i dati.
+- Gli archivi sono compatibili tra add-on, Docker e installazione diretta.
 
 ### Interfaccia
 - Tema **scuro e chiaro**, con la preferenza salvata nel browser.
 - **PWA**: con `manifest.json` è installabile sulla schermata home dello smartphone.
 - Interfaccia in italiano.
+- Funziona sia all'indirizzo diretto sia dietro **Home Assistant Ingress**.
 
 ---
 
@@ -109,53 +116,81 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 
 ---
 
-## Struttura del progetto
+## Struttura del repository
+
+Il repository segue il formato dei **repository di add-on Home Assistant**: nella root ci sono i file del repository, l'applicazione sta nella cartella `casadash/`.
 
 ```
-casadash/
-├── config.json             # Manifest dell'add-on Home Assistant
-├── Dockerfile              # Immagine usata dall'add-on e da Docker
-├── docker-compose.yml      # Avvio standalone con Docker Compose
-├── run.sh                  # Entrypoint del container (prepara /data, seed, avvio)
-├── seed.js                 # Crea e migra lo schema, crea admin e categorie predefinite
-├── drizzle/                # Migrazioni e snapshot drizzle-kit
-├── drizzle.config.ts
-├── static/                 # manifest PWA, robots.txt
-└── src/
-    ├── hooks.server.ts     # Sessione utente ed esecuzione dei movimenti ricorrenti
-    ├── lib/
-    │   ├── categories.ts   # Categorie predefinite (lato client)
-    │   └── server/db/      # Connessione SQLite, schema Drizzle
-    └── routes/
-        ├── +page.*         # Dashboard e azioni sui movimenti
-        ├── login/          # Login e verifica MFA
-        ├── reports/        # Report e export CSV
-        ├── settings/       # budgets, categories, recurring, users, profile, mfa, backup
-        ├── api/backup/     # GET: download del backup ZIP
-        └── uploads/receipts/[file]/  # Servizio dei file delle ricevute
+.
+├── repository.yaml           # Manifest del repository add-on Home Assistant
+├── docker-compose.yml        # Avvio standalone con Docker Compose
+├── .github/workflows/
+│   └── publish.yml           # Build e pubblicazione dell'immagine multi-arch su GHCR
+└── casadash/                 # Add-on e applicazione
+    ├── config.yaml           # Manifest dell'add-on (Ingress, porte, architetture)
+    ├── DOCS.md               # Documentazione mostrata in Home Assistant
+    ├── CHANGELOG.md
+    ├── icon.png
+    ├── Dockerfile            # Immagine multi-stage per add-on e Docker
+    ├── run.sh                # Entrypoint del container
+    ├── start.mjs             # Launcher comune: seed, avvio, riavvio dopo un ripristino
+    ├── seed.js               # Schema e migrazioni, admin e categorie predefinite
+    ├── .env.example          # Configurazione per l'installazione diretta
+    ├── drizzle/              # Migrazioni e snapshot drizzle-kit
+    ├── static/               # manifest PWA, icone
+    └── src/
+        ├── hooks.server.ts   # Sessione, controllo accessi, movimenti ricorrenti
+        ├── lib/server/
+        │   ├── config.ts     # Percorsi dati (DATA_DIR) e opzioni cookie
+        │   ├── auth.ts       # Sessioni, MFA, limitazione dei tentativi
+        │   ├── ingress.ts    # Prefisso Home Assistant Ingress
+        │   ├── receipts.ts   # Salvataggio e servizio delle ricevute
+        │   └── db/           # Connessione SQLite, schema Drizzle
+        └── routes/
+            ├── +page.*       # Dashboard e azioni sui movimenti
+            ├── login/        # Login e verifica MFA
+            ├── reports/      # Report ed export CSV
+            ├── settings/     # budgets, categories, recurring, users, profile, mfa, backup
+            ├── api/backup/   # GET: download del backup ZIP
+            └── uploads/receipts/[file]/  # Servizio delle ricevute
 ```
 
 ---
 
 ## Installazione
 
-In tutte le modalità l'app ha bisogno di:
-- un percorso scrivibile per il database SQLite, indicato da `DATABASE_URL`;
-- una cartella `uploads/` scrivibile per le ricevute, relativa alla directory di lavoro del processo.
+Le tre modalità usano lo stesso launcher, `start.mjs`, che esegue in ordine:
+1. le migrazioni del database con `seed.js`;
+2. l'avvio del server;
+3. il riavvio automatico dopo il ripristino di un backup.
 
 ### 1. Add-on Home Assistant
 
-Il repository contiene `config.json` e `Dockerfile` nel formato degli add-on locali di Home Assistant.
+**Da repository (consigliato)**
 
-1. Copia la cartella del progetto in `/addons/casadash` sull'host di Home Assistant (ad esempio con l'add-on *Samba* o *SSH*).
-2. In Home Assistant apri **Impostazioni → Componenti aggiuntivi → Store**, poi **⋮ → Controlla aggiornamenti**.
-3. Nella sezione *Add-on locali* apri **CasaDash** e premi **Installa**. La prima build richiede alcuni minuti.
-4. Nella scheda **Configurazione** puoi cambiare la porta interna (`port`, predefinita `8099`).
-5. Avvia l'add-on e apri `http://<ip-home-assistant>:8081`. La porta 8099 del container è pubblicata sulla porta 8081 dell'host; puoi cambiarla nella scheda *Rete*.
+1. In Home Assistant apri **Impostazioni → Componenti aggiuntivi → Store**.
+2. Apri **⋮ → Repository**, aggiungi `https://github.com/ichigo86x/casadash` e conferma.
+3. Apri **CasaDash** nello Store e premi **Installa**. La prima build richiede alcuni minuti.
+4. Avvia l'add-on e attiva **Mostra nella barra laterale**. CasaDash si apre dal pannello tramite **Ingress**.
 
-Database e ricevute vengono salvati nella cartella `/data` dell'add-on, quindi sono inclusi nei backup di Home Assistant.
+Per provare un branch non ancora unito a `main`, aggiungi il repository come `https://github.com/ichigo86x/casadash#nome-branch`.
 
-> Ingress non è attivo (`"ingress": false`): l'app si apre sulla porta dedicata, non dal pannello laterale.
+**Come add-on locale (sviluppo)**
+
+1. Copia la cartella `casadash/` in `/addons/casadash` sull'host, con l'add-on *Samba* o *SSH*.
+2. Nello Store apri **⋮ → Controlla aggiornamenti**: CasaDash compare tra gli *Add-on locali*.
+3. Installa e avvia come sopra.
+
+**Accesso diretto (opzionale)**
+
+La porta 8099 non è pubblicata di default. Per usare CasaDash fuori dal pannello, ad esempio come PWA sullo smartphone:
+1. apri la scheda **Rete** dell'add-on;
+2. imposta una porta host per `8099/tcp`, ad esempio `8081`;
+3. apri `http://<ip-home-assistant>:8081`.
+
+Database e ricevute stanno nella cartella `/data` dell'add-on, quindi sono inclusi nei backup di Home Assistant.
+
+Architetture supportate: `amd64` e `aarch64` (Raspberry Pi 4/5 con sistema a 64 bit).
 
 ### 2. Docker / Docker Compose
 
@@ -167,94 +202,112 @@ docker compose up -d --build
 
 L'app è disponibile su `http://localhost:8099`. I dati restano nel volume `casadash_data`, montato su `/data`.
 
-Per cambiare porta modifica `docker-compose.yml`:
+Per cambiare porta o fuso orario modifica `docker-compose.yml`:
 
 ```yaml
     ports:
       - "8080:8099"        # host:container
+    environment:
+      - TZ=Europe/Rome
 ```
 
-Oppure, senza Compose:
+Senza Compose:
 
 ```bash
-docker build -t casadash .
+docker build -t casadash ./casadash
 docker run -d --name casadash --restart unless-stopped \
-  -p 8099:8099 -v casadash_data:/data casadash
+  -p 8099:8099 -v casadash_data:/data -e TZ=Europe/Rome casadash
 ```
 
-Fuori da Home Assistant `run.sh` non trova `/data/options.json` e usa la variabile `PORT`, oppure `8099`.
+Quando l'immagine è pubblicata su GHCR (vedi [Rilasci](#rilasci)) puoi usare `image: ghcr.io/ichigo86x/casadash:latest` al posto di `build:`.
 
 ### 3. Esecuzione diretta con Node.js
 
-Requisiti: **Node.js 24** e gli strumenti di compilazione per i moduli nativi di `better-sqlite3`. Su Linux servono `python3`, `make` e `g++`; su Windows servono i *Build Tools* di Visual Studio.
+Requisiti: **Node.js 22.12 o superiore** (consigliato 24). Se per la tua piattaforma non esiste un binario precompilato di `better-sqlite3`, servono anche gli strumenti di compilazione: `python3`, `make` e `g++` su Linux, i *Build Tools* di Visual Studio su Windows.
 
 ```bash
 git clone https://github.com/ichigo86x/casadash.git
-cd casadash
-npm install
+cd casadash/casadash
+npm ci
 npm run build
-
-# Linux / macOS
-export DATABASE_URL=./data/cdash.db
-node seed.js                 # crea lo schema, l'utente admin e le categorie
-PORT=8099 HOST=0.0.0.0 node build/index.js
+cp .env.example .env      # Windows: copy .env.example .env
+npm start
 ```
 
-Su Windows (PowerShell):
+L'app è disponibile su `http://localhost:8099`. Database e ricevute vengono salvati in `./data`, o nella cartella indicata da `DATA_DIR` in `.env`.
 
-```powershell
-$env:DATABASE_URL = "./data/cdash.db"
-node seed.js
-$env:PORT = "8099"; $env:HOST = "0.0.0.0"; node build/index.js
+Per tenerla attiva all'avvio della macchina usa un gestore di servizi che esegua `npm start` nella cartella `casadash/`. Su Linux puoi usare systemd:
+
+```ini
+# /etc/systemd/system/casadash.service
+[Unit]
+Description=CasaDash
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/casadash/casadash
+ExecStart=/usr/bin/node start.mjs
+Restart=on-failure
+User=casadash
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-Le ricevute vengono salvate in `./uploads/receipts`, rispetto alla cartella da cui avvii il server.
-
-Per tenerla attiva come servizio usa systemd, pm2 o NSSM su Windows. Il servizio deve riavviarsi automaticamente, perché il ripristino di un backup termina il processo.
+Su Windows puoi usare NSSM o pm2.
 
 ---
 
 ## Configurazione
 
-| Variabile | Obbligatoria | Default | Descrizione |
-|---|---|---|---|
-| `DATABASE_URL` | sì | — (`/data/cdash.db` nel container) | Percorso del file SQLite. La cartella viene creata se manca. |
-| `PORT` | no | `8099` nel container, `3000` con adapter-node | Porta HTTP. |
-| `HOST` | no | `0.0.0.0` nel container | Interfaccia di ascolto. |
+Variabili d'ambiente, oppure file `.env` nell'installazione diretta:
 
-Opzioni dell'add-on Home Assistant (`/data/options.json`):
-
-| Opzione | Default | Descrizione |
+| Variabile | Default | Descrizione |
 |---|---|---|
-| `port` | `8099` | Porta interna del server. |
+| `DATA_DIR` | `./data` (`/data` nel container) | Cartella del database (`cdash.db`) e delle ricevute (`uploads/`). |
+| `DATABASE_URL` | `$DATA_DIR/cdash.db` | Percorso esplicito del database. Lo usa anche drizzle-kit. |
+| `UPLOADS_DIR` | `$DATA_DIR/uploads` | Cartella delle ricevute. |
+| `PORT` | `8099` | Porta HTTP. Nell'add-on è fissa, perché Ingress usa la 8099. |
+| `HOST` | `0.0.0.0` | Interfaccia di ascolto. |
+| `COOKIE_SECURE` | `auto` | Flag `Secure` del cookie di sessione. `auto` lo attiva solo per richieste HTTPS, anche dietro un proxy che invia `X-Forwarded-Proto`. Valori ammessi: `true`, `false`. |
+| `BODY_SIZE_LIMIT` | `100M` | Dimensione massima di upload per ricevute e backup. |
+| `TZ` | fuso del sistema | Fuso orario, ad esempio `Europe/Rome`. |
 
-Per lo sviluppo copia `.env.example` in `.env` e imposta `DATABASE_URL` con un percorso valido, ad esempio `DATABASE_URL=../data/cdash.db`.
+L'add-on Home Assistant non ha opzioni da configurare.
 
 ---
 
 ## Primo accesso
 
-Al primo avvio, se il database non ha utenti, `seed.js` crea l'account:
+Al primo avvio, se il database non ha utenti, viene creato l'account:
 
 - **utente:** `admin`
 - **password:** `admin`
 
-**Cambia subito la password** da *Profilo* e valuta l'attivazione della verifica in due passaggi da *MFA*. Gli altri membri della famiglia si aggiungono da *Famiglia*.
+Al primo accesso CasaDash chiede subito una nuova password. Lo stesso succede alle installazioni esistenti che usano ancora `admin`/`admin`.
+
+Dopo il primo accesso:
+- attiva la verifica in due passaggi da **MFA**;
+- aggiungi gli altri membri da **Famiglia**. Anche loro dovranno scegliere una password personale al primo accesso.
 
 ---
 
 ## Dati, backup e ripristino
 
-| Dato | Container / add-on | Esecuzione diretta |
+| Dato | Add-on / Docker | Installazione diretta |
 |---|---|---|
-| Database | `/data/cdash.db` | percorso di `DATABASE_URL` |
-| Ricevute | `/data/uploads/receipts`, collegata a `/app/uploads` | `./uploads/receipts` |
+| Database | `/data/cdash.db` | `$DATA_DIR/cdash.db` (default `./data/cdash.db`) |
+| Ricevute | `/data/uploads/receipts/` | `$DATA_DIR/uploads/receipts/` |
 
-- **Backup dall'app:** *Backup → Scarica* produce `CasaDash_Backup_AAAA-MM-GG.zip`.
-- **Ripristino dall'app:** carica lo ZIP. Il database e le ricevute vengono sovrascritti e il processo si riavvia.
-- **Backup a livello di sistema:** copia la cartella `/data` del volume. Nell'add-on è già inclusa negli snapshot di Home Assistant.
+- **Backup dall'app:** *Backup → Scarica* produce `CasaDash_Backup_AAAA-MM-GG.zip`. Il database viene copiato con l'API di backup online di SQLite, quindi la copia è coerente anche mentre l'app è in uso.
+- **Ripristino dall'app:** carica lo ZIP.
+  - L'archivio viene prima convalidato: deve contenere un database SQLite e nessun percorso fuori dalla cartella uploads.
+  - Poi database e ricevute vengono sostituiti e l'app si riavvia da sola.
+- **Backup di sistema:** copia la cartella dei dati. Nell'add-on è già inclusa nei backup di Home Assistant.
 
-Lo schema viene creato e aggiornato all'avvio da `seed.js` e da `src/lib/server/db/index.ts`, che aggiungono le colonne mancanti. I database delle versioni precedenti vengono quindi migrati automaticamente.
+Gli archivi sono compatibili con la versione 1.0.0 e tra le tre modalità di installazione.
+
+Lo schema viene creato e aggiornato a ogni avvio da `seed.js`, che aggiunge tabelle e colonne mancanti. I database delle versioni precedenti vengono quindi migrati automaticamente.
 
 ---
 
@@ -262,7 +315,8 @@ Lo schema viene creato e aggiornato all'avvio da `seed.js` e da `src/lib/server/
 
 | Tabella | Contenuto |
 |---|---|
-| `users` | username, hash della password, segreto TOTP opzionale, nome visualizzato |
+| `users` | username, hash della password, segreto TOTP opzionale, nome visualizzato, obbligo di cambio password |
+| `sessions` | sessioni attive e verifiche MFA in corso (solo l'hash SHA-256 del token), con scadenza |
 | `transactions` | tipo (`income`/`expense`), descrizione, importo, data, categoria, metodo di pagamento, tag (JSON), ricevuta, stato del saldo della carta di credito, autore |
 | `recurring_transactions` | regole ricorrenti: frequenza, prossima scadenza, attiva/disattiva |
 | `budgets` | tipo di periodo (`monthly`, `annual`, `annual-category`), anno, mese, categoria (`Totale` = complessivo), importo |
@@ -273,31 +327,52 @@ Lo schema viene creato e aggiornato all'avvio da `seed.js` e da `src/lib/server/
 ## Sviluppo
 
 ```bash
-npm install
-cp .env.example .env          # poi imposta DATABASE_URL=../data/cdash.db
-DATABASE_URL=../data/cdash.db node seed.js
-npm run dev                   # http://localhost:8081
+cd casadash
+npm ci
+cp .env.example .env
+npm run dev          # esegue seed.js e avvia Vite su http://localhost:8081
 ```
 
 | Script | Descrizione |
 |---|---|
-| `npm run dev` | Server di sviluppo Vite (porta 8081) |
+| `npm run dev` | Migrazioni e server di sviluppo Vite (porta 8081) |
 | `npm run build` | Build di produzione in `build/` |
-| `npm run preview` | Anteprima della build |
+| `npm start` | Avvio di produzione tramite `start.mjs` |
+| `npm run seed` | Solo migrazioni e dati iniziali |
 | `npm run check` | Type-check con svelte-check |
 | `npm run lint` / `npm run format` | Prettier |
 | `npm run db:generate` / `db:migrate` / `db:push` / `db:studio` | drizzle-kit |
 
+**Link interni e Ingress.** L'app gira sia su `/` sia sotto il prefisso di Ingress (`/api/hassio_ingress/<token>/`). Per questo:
+- i link interni usano `base` da `$app/paths`, ad esempio `href="{base}/reports"`, mai percorsi assoluti come `/reports`;
+- i redirect lato server usano `appUrl(locals, '/percorso')`;
+- la configurazione `paths.relative: true` in `svelte.config.js` rende relativi i percorsi degli asset.
+
 ---
 
-## Sicurezza e limiti noti
+## Rilasci
 
-CasaDash è pensata per una **rete domestica fidata**. Allo stato attuale:
+1. Aggiorna `version` in `casadash/config.yaml` e `casadash/CHANGELOG.md`.
+2. Crea e invia il tag corrispondente:
+   ```bash
+   git tag v1.1.0
+   git push origin v1.1.0
+   ```
+3. La GitHub Action `publish.yml` pubblica `ghcr.io/ichigo86x/casadash` per `amd64` e `arm64`.
+4. La prima volta, rendi pubblico il pacchetto dalla pagina *Packages* di GitHub.
 
-- **La sessione non è firmata.** Il cookie `auth_user` contiene solo l'ID numerico dell'utente, quindi chi può raggiungere l'app può impersonare un utente.
-- **Alcune pagine e azioni non verificano il login lato server.** Tra queste ci sono il caricamento della dashboard, l'eliminazione dei movimenti, l'elenco utenti, le categorie e il servizio delle ricevute.
-- **L'account predefinito è `admin` / `admin`.**
-- **Il cookie di sessione è `Secure` in produzione.** Su HTTP semplice da un indirizzo diverso da `localhost`, il browser può rifiutarlo e il login non riesce. Usa HTTPS (reverse proxy) o accedi da `localhost`.
-- **Il ripristino del backup non convalida i percorsi dentro lo ZIP.** Usa solo archivi generati da CasaDash.
+Per far scaricare all'add-on l'immagine già pronta invece di compilarla, decommenta `image:` in `casadash/config.yaml`.
 
-**Non esporre CasaDash su Internet** senza un reverse proxy con HTTPS e un'autenticazione davanti, ad esempio una VPN o Tailscale, finché questi punti non sono risolti.
+---
+
+## Sicurezza
+
+- Tutte le pagine, le API e le ricevute richiedono l'accesso.
+- Le sessioni sono lato server: il cookie contiene un token casuale e il database ne conserva solo l'hash.
+- La verifica MFA è legata a un token temporaneo di 5 minuti.
+- Dopo 5 tentativi di accesso falliti l'accesso è bloccato per 15 minuti, per indirizzo e utente.
+- Il cookie è `HttpOnly` e `SameSite=Lax`. Il flag `Secure` dipende da `COOKIE_SECURE`.
+- La password predefinita deve essere cambiata al primo accesso.
+- Gli allegati accettano solo immagini e PDF, e i ripristini rifiutano archivi non validi.
+
+CasaDash resta pensata per una **rete domestica**. Per l'accesso da Internet usa Ingress di Home Assistant, una VPN (WireGuard, Tailscale) o un reverse proxy HTTPS con `COOKIE_SECURE=true`. Non pubblicare direttamente la porta 8099.

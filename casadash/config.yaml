@@ -1,0 +1,35 @@
+name: CasaDash
+version: "1.1.0"
+slug: casadash
+description: Gestione del budget familiare - entrate, uscite, budget, ricorrenti e report.
+url: https://github.com/ichigo86x/casadash
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: application
+boot: auto
+watchdog: tcp://[HOST]:[PORT:8099]
+
+# Sidebar panel through Home Assistant Ingress
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:finance
+panel_title: CasaDash
+panel_admin: false
+
+# Optional direct access (e.g. for the mobile PWA): disabled by default,
+# set a host port in the add-on "Network" tab to enable it.
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: Accesso diretto via browser (opzionale, Ingress consigliato)
+
+# Database and receipts are stored in the add-on /data folder,
+# which is included in Home Assistant backups.
+options: {}
+schema: {}
+
+# Prebuilt multi-arch image (see .github/workflows/publish.yml), tagged with `version`.
+# Uncomment once the image for this version is published to skip the local build:
+# image: ghcr.io/ichigo86x/casadash
