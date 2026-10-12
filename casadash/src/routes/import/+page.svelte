@@ -23,7 +23,26 @@
 	let defaultIncome = $state(data.incomeCategories.includes('Altro') ? 'Altro' : data.incomeCategories[0] || 'Altro');
 
 	// Step 3: reviewed rows
-	type ReviewRow = ParsedRow & { include: boolean; category: string; transfer: boolean; duplicate: string | null; suggested: boolean };
+	type Match = { description: string; amount: number; category: string; paymentMethod: string; tags: string[] };
+	type ReviewRow = ParsedRow & {
+		include: boolean;
+		category: string;
+		transfer: boolean;
+		duplicate: string | null;
+		matches: Match[];
+		suggested: boolean;
+		editing: boolean;
+		showMatches: boolean;
+	};
+	const paymentLabels: Record<string, string> = { bancomat: 'Conto / Bancomat', credit_card: 'Carta di credito', cash: 'Contanti' };
+	const matchTooltip = (m: Match[]) =>
+		'Già registrato:\n' + m.map((x) => `• ${x.description} — ${formatEuro(x.amount)} · ${x.category}${x.tags.length ? ' · ' + x.tags.join(', ') : ''}`).join('\n');
+
+	// Focuses the description field as soon as it appears
+	function autofocus(node: HTMLInputElement) {
+		node.focus();
+		node.select();
+	}
 	let review: ReviewRow[] = $state([]);
 	let busy = $state(false);
 	let imported = $state<number | null>(null);
@@ -89,10 +108,13 @@
 			error = res.type === 'failure' ? String(res.data?.error) : 'Analisi non riuscita.';
 			return;
 		}
-		const suggestions = res.data?.suggestions as { category: string | null; duplicate: string | null }[];
+		const suggestions = res.data?.suggestions as { category: string | null; duplicate: string | null; matches: Match[] }[];
 		review = candidates.map((r, i) => ({
 			...r,
 			duplicate: suggestions[i].duplicate,
+			matches: suggestions[i].matches || [],
+			editing: false,
+			showMatches: false,
 			include: suggestions[i].duplicate !== 'exact',
 			category: suggestions[i].category || (r.amount < 0 ? defaultExpense : defaultIncome),
 			suggested: !!suggestions[i].category,
@@ -277,9 +299,42 @@
 							<td><input type="checkbox" bind:checked={r.include} aria-label="Importa riga {r.line}"></td>
 							<td style="white-space:nowrap;">{formatDate(r.date)}</td>
 							<td>
-								{r.description}
-								{#if r.duplicate === 'exact'}<span class="flag red">già presente</span>{/if}
-								{#if r.duplicate === 'probable'}<span class="flag orange" title="Esiste già un movimento con stessa data e importo">possibile doppione</span>{/if}
+								{#if r.editing}
+									<input
+										class="desc-input"
+										bind:value={r.description}
+										use:autofocus
+										aria-label="Descrizione"
+										onblur={() => { r.description = r.description.trim() || '(senza descrizione)'; r.editing = false; }}
+										onkeydown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur(); }}
+									>
+								{:else}
+									<button type="button" class="desc" title="Clicca per modificare la descrizione" onclick={() => (r.editing = true)}>
+										{r.description} <i class="fas fa-pen"></i>
+									</button>
+								{/if}
+								{#if r.duplicate}
+									<button
+										type="button"
+										class="flag {r.duplicate === 'exact' ? 'red' : 'orange'}"
+										title={matchTooltip(r.matches)}
+										onclick={() => (r.showMatches = !r.showMatches)}
+									>
+										{r.duplicate === 'exact' ? 'già presente' : 'possibile doppione'} <i class="fas fa-chevron-{r.showMatches ? 'up' : 'down'}"></i>
+									</button>
+								{/if}
+								{#if r.showMatches && r.matches.length}
+									<div class="matches">
+										<strong>Già registrat{r.matches.length === 1 ? 'o' : 'i'} il {formatDate(r.date)}:</strong>
+										{#each r.matches as m}
+											<div class="match">
+												<span>{m.description}</span>
+												<span class="expense-amount">{formatEuro(m.amount)}</span>
+												<span class="muted">{m.category} · {paymentLabels[m.paymentMethod] || m.paymentMethod}{m.tags.length ? ' · ' + m.tags.join(', ') : ''}</span>
+											</div>
+										{/each}
+									</div>
+								{/if}
 							</td>
 							<td class={r.amount < 0 ? 'expense-amount' : 'income-amount'} style="white-space:nowrap;">{formatEuro(r.amount)}</td>
 							<td>
@@ -322,4 +377,12 @@
 	.flag.red { background:var(--accent-red-glow); color:var(--accent-red); }
 	.flag.orange { background:rgba(230, 126, 34, 0.15); color:#e67e22; }
 	td select { padding:4px 6px; font-size:0.85rem; }
+	.desc { background:none; border:none; padding:2px 4px; margin:-2px -4px; color:var(--text-primary); cursor:text; text-align:left; font:inherit; border-radius:4px; }
+	.desc:hover { background:var(--bg-secondary); }
+	.desc i { font-size:0.7rem; color:var(--text-muted); opacity:0; }
+	.desc:hover i, .desc:focus i { opacity:1; }
+	.desc-input { width:100%; min-width:220px; padding:4px 6px; font-size:0.9rem; }
+	button.flag { border:none; cursor:pointer; font:inherit; font-size:0.7rem; }
+	.matches { margin-top:6px; padding:8px 10px; border-radius:8px; background:var(--bg-secondary); border:1px solid var(--border-color); font-size:0.8rem; display:flex; flex-direction:column; gap:4px; }
+	.match { display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; }
 </style>

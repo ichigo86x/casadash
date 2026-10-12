@@ -35,7 +35,8 @@ Per impostare il saldo iniziale di un conto, registra un'entrata con il tag del 
 3. Controlla le colonne proposte: data, descrizione e importo (una colonna con segno, oppure addebiti e accrediti).
 4. Scegli il conto (es. `BNL`) e premi **Analizza**.
 5. Controlla l'anteprima:
-   - correggi le categorie;
+   - correggi le categorie e, con un clic, le descrizioni;
+   - sui possibili doppioni passa il mouse o clicca l'etichetta per vedere il movimento già registrato;
    - lascia esclusi i doppioni;
    - spunta il simbolo ⇄ sui giroconti verso altri tuoi conti.
 6. Premi **Importa**.

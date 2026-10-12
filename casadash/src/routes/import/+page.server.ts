@@ -64,7 +64,15 @@ export const actions: Actions = {
 
 		const dates = rows.map((r) => r.date).sort();
 		const existing = await db
-			.select({ date: transactions.date, amount: transactions.amount, type: transactions.type, description: transactions.description })
+			.select({
+				date: transactions.date,
+				amount: transactions.amount,
+				type: transactions.type,
+				description: transactions.description,
+				category: transactions.category,
+				paymentMethod: transactions.paymentMethod,
+				tags: transactions.tags
+			})
 			.from(transactions)
 			.where(and(gte(transactions.date, dates[0]), lte(transactions.date, dates[dates.length - 1])));
 
@@ -76,7 +84,13 @@ export const actions: Actions = {
 			return {
 				category: byKey.get(`${type}|${key}`) || byShortKey.get(`${type}|${shortKey(key)}`) || null,
 				// exact: same date, amount and description; probable: same date and amount only
-				duplicate: sameDay.some((e) => descriptionKey(e.description) === key) ? 'exact' : sameDay.length ? 'probable' : null
+				duplicate: sameDay.some((e) => descriptionKey(e.description) === key) ? 'exact' : sameDay.length ? 'probable' : null,
+				// The already registered movements, shown to the user to decide
+				matches: sameDay.slice(0, 5).map((e) => {
+					let tags: string[] = [];
+					try { tags = JSON.parse(e.tags || '[]'); } catch {}
+					return { description: e.description, amount: e.amount, category: e.category, paymentMethod: e.paymentMethod, tags };
+				})
 			};
 		});
 		return { suggestions };

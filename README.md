@@ -97,6 +97,8 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
   - categoria suggerita dai movimenti con la stessa descrizione;
   - doppioni rilevati (stessa data, importo e descrizione) ed esclusi in automatico;
   - possibili doppioni segnalati (stessa data e importo);
+  - per ogni doppione, il movimento già registrato: si vede passando il mouse sull'etichetta o con un clic;
+  - descrizione modificabile con un clic direttamente nella lista;
   - selezione riga per riga e marcatura dei giroconti come trasferimenti.
 - Di default importa solo le uscite. Le entrate si includono con un'opzione.
 - I movimenti ricevono il tag del conto scelto e il tag `Importato`, e si ritrovano con la ricerca.

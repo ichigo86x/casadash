@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1
+- Importazione: nella lista da controllare si modifica la descrizione con un clic, prima di importare.
+- Importazione: per i doppioni basta passare il mouse sull'etichetta per vedere il movimento già registrato con stessa data e importo (descrizione, importo, categoria, metodo, tag). Un clic apre il dettaglio sotto la riga, comodo anche da telefono.
+
 ## 1.4.0
 
 ### Novità
