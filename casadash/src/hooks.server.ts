@@ -1,10 +1,12 @@
 import { db } from '$lib/server/db';
-import { recurringTransactions, transactions } from '$lib/server/db/schema';
+import { recurringTransactions, transactions, users } from '$lib/server/db/schema';
 import { lte, eq, and } from 'drizzle-orm';
 import { error, redirect, type Handle, type HandleServerError, type ServerInit } from '@sveltejs/kit';
 import { runScheduledBackup } from '$lib/server/backup';
-import { SESSION_COOKIE, purgeExpiredSessions, validateSession } from '$lib/server/auth';
-import { appUrl, ingressBase } from '$lib/server/ingress';
+import { SESSION_COOKIE, createSession, purgeExpiredSessions, setAuthCookie, validateSession } from '$lib/server/auth';
+import { pushSensorsToHomeAssistant } from '$lib/server/sensors';
+import { cookieSecure } from '$lib/server/config';
+import { appUrl, ingressBase, ingressHaUser } from '$lib/server/ingress';
 import { localDateString, nextOccurrence } from '$lib/dates';
 
 const HOUR = 60 * 60 * 1000;
@@ -28,18 +30,33 @@ export const init: ServerInit = async () => {
     // First run shortly after start-up, then every hour
     setTimeout(runHourlyTasks, 5000).unref();
     setInterval(runHourlyTasks, HOUR).unref();
+    // Home Assistant sensors (add-on only): every 10 minutes
+    setTimeout(pushSensorsToHomeAssistant, 15000).unref();
+    setInterval(pushSensorsToHomeAssistant, 10 * 60 * 1000).unref();
 };
 
 // Routes reachable without a session. Static files (/_app, static/) are served before this hook.
 function isPublicPath(pathname: string): boolean {
-    return pathname === '/login' || pathname.startsWith('/login/');
+    // /api/sensors checks its own token (Home Assistant `rest` integration)
+    return pathname === '/login' || pathname.startsWith('/login/') || pathname === '/api/sensors';
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
     event.locals.base = ingressBase(event.request.headers);
 
+    event.locals.haUser = ingressHaUser(event.request.headers, event.locals.base, event.getClientAddress());
+
     // 1. Resolve Auth Session Context
-    const user = await validateSession(event.cookies.get(SESSION_COOKIE), 'session');
+    let user = await validateSession(event.cookies.get(SESSION_COOKIE), 'session');
+
+    // Automatic sign-in from the Home Assistant sidebar for a linked HA user
+    if (!user && event.locals.haUser) {
+        const [linked] = await db.select().from(users).where(eq(users.haUserId, event.locals.haUser.id)).limit(1);
+        if (linked) {
+            setAuthCookie(event.cookies, SESSION_COOKIE, await createSession(linked.id, 'session'), cookieSecure(event.url, event.request.headers));
+            user = linked;
+        }
+    }
     event.locals.user = user
         ? { id: user.id, username: user.username, displayName: user.displayName, mustChangePassword: user.mustChangePassword, role: user.role }
         : null;

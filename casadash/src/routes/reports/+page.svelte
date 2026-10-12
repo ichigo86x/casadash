@@ -130,11 +130,40 @@
 		});
 	}
 
+	// Wealth over time (account balances at each month end)
+	let wealthCanvas: HTMLCanvasElement;
+	let wealthChart: any = null;
+	const palette = ['#4361ee', '#2ecc71', '#e67e22', '#9b59b6', '#e74c3c', '#1abc9c', '#f1c40f'];
+	const monthLabel = (ym: string) => `${italianMonths[parseInt(ym.slice(5, 7)) - 1].slice(0, 3)} ${ym.slice(2, 4)}`;
+	function renderWealthChart() {
+		if (wealthChart) wealthChart.destroy();
+		if (!wealthCanvas || data.wealth.series.length === 0) return;
+		const ctx = wealthCanvas.getContext('2d');
+		if (!ctx) return;
+		wealthChart = new Chart(ctx, {
+			type: 'line',
+			data: {
+				labels: data.wealth.labels.map(monthLabel),
+				datasets: [
+					...data.wealth.series.map((s, i) => ({ label: s.tag, data: s.values, borderColor: palette[i % palette.length], backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 2 })),
+					{ label: 'Totale', data: data.wealth.total, borderColor: getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim() || '#888', borderDash: [6, 4], backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 0 }
+				]
+			},
+			options: {
+				responsive: true, maintainAspectRatio: false,
+				interaction: { mode: 'index', intersect: false },
+				plugins: { tooltip: { callbacks: { label: (c: any) => `${c.dataset.label}: ${formatEuro(c.parsed.y)}` } } },
+				scales: { y: { ticks: { callback: (v: any) => formatEuro(Number(v)) } } }
+			}
+		});
+	}
+
 	$effect(() => {
 		// Reactive bind to URL changes
 		let dummy = data.summary.expense; // trigger re-render 
 		renderChart();
         renderLineChart();
+        renderWealthChart();
 	});
 
 	onMount(() => { renderChart(); renderLineChart(); });
@@ -439,6 +468,25 @@
             {/if}
 		</div>
 
+		{#if data.wealth.series.length > 0}
+			{@const last = data.wealth.total.length - 1}
+			{@const yearAgo = Math.max(0, last - 12)}
+			<div class="chart-section" style="margin-bottom:24px;">
+				<h3><i class="fas fa-landmark"></i> Patrimonio nel tempo <small style="color:var(--text-muted); font-weight:normal;">· saldi dei conti a fine mese, ultimi 24 mesi</small></h3>
+				<div class="chart-container" style="height:280px;"><canvas bind:this={wealthCanvas}></canvas></div>
+				<div class="wealth-figures">
+					{#each data.wealth.series as s}
+						{@const diff = s.values[last] - s.values[yearAgo]}
+						<div><span>{s.tag}</span><strong>{formatEuro(s.values[last])}</strong><small class={diff >= 0 ? 'income-amount' : 'expense-amount'}>{diff >= 0 ? '+' : ''}{formatEuro(diff)} in 12 mesi</small></div>
+					{/each}
+					{#if data.wealth.series.length > 1}
+						{@const diff = data.wealth.total[last] - data.wealth.total[yearAgo]}
+						<div><span>Totale</span><strong>{formatEuro(data.wealth.total[last])}</strong><small class={diff >= 0 ? 'income-amount' : 'expense-amount'}>{diff >= 0 ? '+' : ''}{formatEuro(diff)} in 12 mesi</small></div>
+					{/if}
+				</div>
+			</div>
+		{/if}
+
 		<div class="category-breakdown">
 			<h3><i class="fas fa-layer-group"></i> Dettaglio Categorie</h3>
 			<div class="categories-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:12px; margin-top:15px;">
@@ -569,6 +617,10 @@
 </datalist>
 
 <style>
+.wealth-figures { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:12px; margin-top:14px; }
+.wealth-figures div { display:flex; flex-direction:column; gap:2px; }
+.wealth-figures span { font-size:0.75rem; color:var(--text-muted); }
+.wealth-figures small { font-size:0.75rem; }
 .yoy { font-size:0.75rem; color:var(--text-muted); margin-top:4px; }
 .yoy.worse { color:var(--accent-red); }
 .yoy.better { color:var(--accent-green); }

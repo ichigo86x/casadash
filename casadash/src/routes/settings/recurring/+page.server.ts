@@ -3,9 +3,11 @@ import { recurringTransactions, categories } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
+import { upcomingRecurring } from '$lib/server/wealth';
+import { getSetting } from '$lib/server/settings';
 
 export const load: PageServerLoad = async ({ locals }) => {
-    if (!locals.user) return { jobs: [], categories: [], summary: {} };
+    if (!locals.user) return { jobs: [], categories: [], summary: {}, upcoming: [] };
 
     const jobs = await db.select().from(recurringTransactions).where(eq(recurringTransactions.createdBy, locals.user.id));
     const dbCategories = await db.select().from(categories);
@@ -30,7 +32,9 @@ export const load: PageServerLoad = async ({ locals }) => {
         };
     }
 
-    return { jobs, categories: dbCategories, summary };
+    // Family calendar: everyone's active schedules, not only the current user's
+    const upcoming = await upcomingRecurring(await getSetting<string[]>('account_tags', []));
+    return { jobs, categories: dbCategories, summary, upcoming };
 };
 
 export const actions: Actions = {

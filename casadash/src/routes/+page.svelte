@@ -4,6 +4,7 @@
 	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
 	import { isTransferTags, TRANSFER_TAG } from '$lib/transfers';
+	import { matchRule, ruleTags } from '$lib/rules';
 	import { onMount } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import Chart from 'chart.js/auto';
@@ -28,6 +29,47 @@
     let editingTransaction: any = $state(null);
 	let currentTags: string[] = $state([]);
 	let editTags: string[] = $state([]);
+
+	// Bulk selection on the current page of the list
+	let selectedIds: number[] = $state([]);
+	let bulkCategory = $state('');
+	let bulkTag = $state('');
+	let bulkMessage = $state('');
+	let pageIds = $derived(data.transactions.map((t) => t.id));
+	let allOnPageSelected = $derived(pageIds.length > 0 && pageIds.every((id) => selectedIds.includes(id)));
+	function toggleSelected(id: number) {
+		selectedIds = selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id];
+	}
+	function toggleAllOnPage() {
+		selectedIds = allOnPageSelected ? selectedIds.filter((id) => !pageIds.includes(id)) : [...new Set([...selectedIds, ...pageIds])];
+	}
+	const bulkEnhance = ({ formData, cancel }: { formData: FormData; cancel: () => void }) => {
+		if (formData.get('op') === 'delete' && !confirm(`Eliminare definitivamente ${selectedIds.length} movimenti?`)) return cancel();
+		formData.set('ids', JSON.stringify(selectedIds));
+		return async ({ result, update }: { result: any; update: () => Promise<void> }) => {
+			await update();
+			if (result.type === 'success') {
+				bulkMessage = result.data?.bulk || '';
+				selectedIds = [];
+				bulkTag = '';
+			}
+		};
+	};
+
+	// Automatic rules: fill category and tags from the description, unless the category was picked by hand
+	let categoryTouched = false;
+	let appliedRule: string | null = $state(null);
+	function applyRules(description: string) {
+		const rule = matchRule(data.rules, description, formType);
+		appliedRule = rule ? rule.pattern : null;
+		if (!rule) return;
+		const select = document.getElementById('category') as HTMLSelectElement | null;
+		if (rule.category && select && !categoryTouched && [...select.options].some((o) => o.value === rule.category)) {
+			select.value = rule.category;
+		}
+		for (const t of ruleTags(rule)) if (!currentTags.includes(t)) currentTags.push(t);
+		if (rule.markTransfer && !currentTags.includes(TRANSFER_TAG)) currentTags.push(TRANSFER_TAG);
+	}
 
 	// Adds or removes a tag in place (the arrays are $state proxies)
 	function toggleTag(tags: string[], tag: string) {
@@ -360,6 +402,27 @@
 			{/each}
 		</div>
 
+		{#if data.upcoming.length > 0}
+		{@const out = data.upcoming.filter((u) => u.type === 'expense').reduce((a, u) => a + u.amount, 0)}
+		{@const inn = data.upcoming.filter((u) => u.type === 'income').reduce((a, u) => a + u.amount, 0)}
+		<div class="month-card">
+			<h3><i class="fas fa-calendar-alt"></i> Prossimi 30 giorni</h3>
+			<ul class="upcoming">
+				{#each data.upcoming.slice(0, 6) as u}
+					<li>
+						<span class="when">{formatDate(u.date).slice(0, 5)}</span>
+						<span class="what">{u.description}{#if u.account}<small> · {u.account}</small>{/if}</span>
+						<span class={u.type === 'expense' ? 'expense-amount' : 'income-amount'}>{u.type === 'expense' ? '-' : '+'}{formatEuro(u.amount)}</span>
+					</li>
+				{/each}
+			</ul>
+			<p class="month-note">
+				Uscite previste {formatEuro(out)}{#if inn > 0} · entrate {formatEuro(inn)}{/if}
+				· <a href="{base}/settings/recurring">{data.upcoming.length > 6 ? `tutte le ${data.upcoming.length} scadenze` : 'gestisci ricorrenti'}</a>
+			</p>
+		</div>
+		{/if}
+
 		{#if data.accounts.length > 0}
 		<div class="month-card">
 			<h3><i class="fas fa-university"></i> Saldi per conto</h3>
@@ -408,6 +471,8 @@
 					await update();
 					currentTags = [];
 					formType = 'expense';
+					categoryTouched = false;
+					appliedRule = null;
                     compressedReceiptBlob = null;
                     receiptFileName = '';
                     const fInput = document.getElementById('receipt_file') as HTMLInputElement;
@@ -418,7 +483,8 @@
 
 				<div class="form-group">
 					<label for="description">Descrizione</label>
-					<input type="text" id="description" name="description" required placeholder="Per cosa è questa transazione?" list="desc_list">
+					<input type="text" id="description" name="description" required placeholder="Per cosa è questa transazione?" list="desc_list" onchange={(e) => applyRules(e.currentTarget.value)}>
+					{#if appliedRule}<small class="rule-hint"><i class="fas fa-magic"></i> Regola applicata: «{appliedRule}»</small>{/if}
 				</div>
 
 				<div class="form-group">
@@ -455,7 +521,7 @@
 
 				<div class="form-group">
 					<label for="category">Categoria</label>
-					<select id="category" name="category" required>
+					<select id="category" name="category" required onchange={() => (categoryTouched = true)}>
 						{#if formType === 'expense'}
 							<optgroup label="— Categorie Uscite —">
 								{#each data.expenseCategories as cat}
@@ -637,6 +703,33 @@
 			</div>
 		</div>
 		{/if}
+		{#if bulkMessage}
+			<div class="bulk-message"><i class="fas fa-check-circle"></i> {bulkMessage} <button type="button" onclick={() => (bulkMessage = '')} aria-label="Chiudi"><i class="fas fa-times"></i></button></div>
+		{/if}
+		{#if selectedIds.length > 0}
+			<div class="bulk-bar">
+				<strong>{selectedIds.length} selezionati</strong>
+				<form method="POST" action="?/bulkEdit" use:enhance={bulkEnhance}>
+					<input type="hidden" name="op" value="category">
+					<select name="value" bind:value={bulkCategory} required aria-label="Nuova categoria">
+						<option value="" disabled>Categoria…</option>
+						<optgroup label="Uscite">{#each data.expenseCategories as c}<option value={c.name}>{c.name}</option>{/each}</optgroup>
+						<optgroup label="Entrate">{#each data.incomeCategories as c}<option value={c.name}>{c.name}</option>{/each}</optgroup>
+					</select>
+					<button type="submit" disabled={!bulkCategory}>Assegna</button>
+				</form>
+				<form method="POST" action="?/bulkEdit" use:enhance={bulkEnhance}>
+					<input name="value" bind:value={bulkTag} list="tags_list" placeholder="Tag…" aria-label="Tag" style="width:130px;">
+					<button type="submit" name="op" value="addTag" disabled={!bulkTag.trim()}><i class="fas fa-plus"></i> Aggiungi</button>
+					<button type="submit" name="op" value="removeTag" disabled={!bulkTag.trim()}><i class="fas fa-minus"></i> Rimuovi</button>
+				</form>
+				<form method="POST" action="?/bulkEdit" use:enhance={bulkEnhance}>
+					<input type="hidden" name="op" value="delete">
+					<button type="submit" class="danger"><i class="fas fa-trash-alt"></i> Elimina</button>
+				</form>
+				<button type="button" class="link" onclick={() => (selectedIds = [])}>Annulla selezione</button>
+			</div>
+		{/if}
 		{#if data.transactionCount === 0}
 			<p class="no-transactions">Nessuna transazione registrata. Inizia aggiungendo la prima!</p>
 		{:else}
@@ -644,6 +737,7 @@
 				<table>
 					<thead>
 						<tr>
+							<th style="width:30px;"><input type="checkbox" checked={allOnPageSelected} onchange={toggleAllOnPage} aria-label="Seleziona tutti i movimenti della pagina"></th>
 							<th>Data</th>
 							<th>Descrizione</th>
 							<th>Categoria</th>
@@ -657,6 +751,7 @@
 						{#each data.transactions as t}
 						{@const transfer = isTransferTags(t.tags)}
 						<tr class="transaction-row {t.type}-row">
+							<td data-label=""><input type="checkbox" checked={selectedIds.includes(t.id)} onchange={() => toggleSelected(t.id)} aria-label="Seleziona movimento"></td>
 							<td data-label="Data">{formatDate(t.date)}</td>
 							<td data-label="Descrizione">
                                 {t.description}
@@ -882,6 +977,21 @@
 </datalist>
 
 <style>
+	.upcoming { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; font-size:0.85rem; }
+	.upcoming li { display:grid; grid-template-columns:44px 1fr auto; gap:8px; align-items:baseline; }
+	.upcoming .when { color:var(--text-muted); font-variant-numeric:tabular-nums; }
+	.upcoming .what { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+	.upcoming small { color:var(--text-muted); }
+	.bulk-bar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:10px 14px; margin-bottom:12px; border-radius:10px; background:rgba(67, 97, 238, 0.08); border:1px solid var(--accent-blue); position:sticky; top:70px; z-index:5; }
+	.bulk-bar form { display:flex; gap:6px; align-items:center; margin:0; }
+	.bulk-bar select, .bulk-bar input { padding:6px 8px; font-size:0.85rem; }
+	.bulk-bar button { padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-card); color:var(--text-primary); cursor:pointer; font-size:0.85rem; }
+	.bulk-bar button:disabled { opacity:0.5; cursor:default; }
+	.bulk-bar button.danger { color:var(--accent-red); border-color:var(--accent-red); }
+	.bulk-bar button.link { border:none; background:none; color:var(--text-muted); text-decoration:underline; }
+	.bulk-message { display:flex; gap:8px; align-items:center; padding:10px 14px; margin-bottom:12px; border-radius:10px; background:var(--accent-green-glow); color:var(--accent-green); }
+	.bulk-message button { margin-left:auto; background:none; border:none; color:inherit; cursor:pointer; }
+	.rule-hint { display:block; margin-top:4px; font-size:0.75rem; color:var(--accent-blue); }
 	.quick-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
 	.quick-tag { font-size:0.75rem; padding:3px 10px; border-radius:14px; border:1px dashed var(--border-color); background:none; color:var(--text-muted); cursor:pointer; }
 	.quick-tag.on { border-style:solid; border-color:var(--accent-blue); color:var(--accent-blue); background:rgba(67, 97, 238, 0.1); }

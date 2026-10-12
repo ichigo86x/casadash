@@ -21,7 +21,7 @@
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.0",
-		"@sveltejs/adapter-node": "^5.5.4",
+		"@sveltejs/adapter-node": "^5.5.7",
 		"@sveltejs/kit": "^2.50.2",
 		"@sveltejs/vite-plugin-svelte": "^6.2.4",
 		"@tailwindcss/vite": "^4.1.18",
@@ -42,10 +42,11 @@
 		"svelte-check": "^4.4.2",
 		"tailwindcss": "^4.1.18",
 		"typescript": "^5.9.3",
-		"vite": "^7.3.1"
+		"vite": "^7.3.1",
+		"xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
 	},
 	"dependencies": {
-		"adm-zip": "^0.5.16",
+		"adm-zip": "^0.6.1",
 		"bcryptjs": "^3.0.3",
 		"better-sqlite3": "^12.6.2",
 		"chart.js": "^4.5.1",

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { base } from '$app/paths';
-	import { deserialize } from '$app/forms';
+	import { deserialize, enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import { applyMapping, guessHeaderRow, guessMapping, parseCsv, type Mapping, type ParsedRow } from '$lib/import';
 
 	let { data } = $props();
@@ -31,6 +32,9 @@
 		duplicate: string | null;
 		matches: Match[];
 		suggested: boolean;
+		source: 'rule' | 'history' | null;
+		rule: string | null;
+		tags: string[];
 		editing: boolean;
 		showMatches: boolean;
 	};
@@ -64,18 +68,51 @@
 		}
 	}
 
+	/**
+	 * Excel/LibreOffice files: first sheet as rows of text. Date cells become dd/mm/yyyy and numbers keep
+	 * a "." decimal separator, so the CSV parsing rules apply unchanged. The library is loaded on demand.
+	 */
+	async function readSpreadsheet(file: File): Promise<string[][]> {
+		const XLSX = await import('xlsx');
+		// cellNF keeps each cell's number format, needed to recognise date cells (timezone-free serial dates)
+		const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellNF: true });
+		const sheet = wb.Sheets[wb.SheetNames[0]];
+		if (!sheet || !sheet['!ref']) return [];
+		const range = XLSX.utils.decode_range(sheet['!ref']);
+		const out: string[][] = [];
+		for (let r = range.s.r; r <= range.e.r; r++) {
+			const row: string[] = [];
+			for (let c = range.s.c; c <= range.e.c; c++) {
+				const cell = sheet[XLSX.utils.encode_cell({ r, c })];
+				if (!cell || cell.v === undefined || cell.v === null) row.push('');
+				else if (cell.t === 'n' && cell.z && XLSX.SSF.is_date(cell.z)) {
+					const d = XLSX.SSF.parse_date_code(cell.v as number);
+					row.push(`${String(d.d).padStart(2, '0')}/${String(d.m).padStart(2, '0')}/${d.y}`);
+				} else if (cell.t === 'd' && cell.v instanceof Date) {
+					const d = cell.v;
+					row.push(`${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`);
+				} else if (cell.t === 'n') row.push(String(cell.v));
+				else row.push(String(cell.w ?? cell.v).trim());
+			}
+			if (row.some((v) => v !== '')) out.push(row);
+		}
+		return out;
+	}
+
 	async function onFile(e: Event) {
 		const file = (e.currentTarget as HTMLInputElement).files?.[0];
 		error = '';
 		review = [];
 		imported = null;
 		if (!file) return;
-		if (/\.xlsx?$/i.test(file.name)) {
-			error = 'I file Excel non sono ancora supportati: aprilo e salvalo come CSV, poi caricalo di nuovo.';
+		fileName = file.name;
+		try {
+			rows = /\.(xlsx?|ods)$/i.test(file.name) ? await readSpreadsheet(file) : parseCsv(await readFile(file));
+		} catch (e) {
+			error = `Impossibile leggere il file: ${(e as Error).message}`;
+			mapping = null;
 			return;
 		}
-		fileName = file.name;
-		rows = parseCsv(await readFile(file));
 		if (rows.length < 2) {
 			error = 'Il file non contiene righe leggibili.';
 			mapping = null;
@@ -108,7 +145,15 @@
 			error = res.type === 'failure' ? String(res.data?.error) : 'Analisi non riuscita.';
 			return;
 		}
-		const suggestions = res.data?.suggestions as { category: string | null; duplicate: string | null; matches: Match[] }[];
+		const suggestions = res.data?.suggestions as {
+			category: string | null;
+			source: 'rule' | 'history' | null;
+			rule: string | null;
+			tags: string[];
+			transfer: boolean;
+			duplicate: string | null;
+			matches: Match[];
+		}[];
 		review = candidates.map((r, i) => ({
 			...r,
 			duplicate: suggestions[i].duplicate,
@@ -118,7 +163,10 @@
 			include: suggestions[i].duplicate !== 'exact',
 			category: suggestions[i].category || (r.amount < 0 ? defaultExpense : defaultIncome),
 			suggested: !!suggestions[i].category,
-			transfer: false
+			source: suggestions[i].source,
+			rule: suggestions[i].rule,
+			tags: suggestions[i].tags || [],
+			transfer: suggestions[i].transfer
 		}));
 	}
 
@@ -127,17 +175,19 @@
 		busy = true;
 		error = '';
 		const form = new FormData();
-		form.set('rows', JSON.stringify(selected.map(({ date, description, amount, category, transfer }) => ({ date, description, amount, category, transfer }))));
+		form.set('rows', JSON.stringify(selected.map(({ date, description, amount, category, transfer, tags }) => ({ date, description, amount, category, transfer, tags }))));
 		form.set('account', account);
 		form.set('payment_method', paymentMethod);
 		if (settled) form.set('settled', 'on');
 		form.set('signature', signature);
 		form.set('mapping', JSON.stringify(mapping));
+		form.set('file', fileName);
 		const res = await post('import', form);
 		busy = false;
 		if (res.type === 'success') {
 			imported = res.data?.imported as number;
 			review = [];
+			await invalidateAll();
 		} else {
 			error = res.type === 'failure' ? String(res.data?.error) : 'Importazione non riuscita.';
 		}
@@ -172,9 +222,41 @@
 	<!-- Step 1 -->
 	<div class="panel">
 		<h2><span class="step">1</span> File della banca</h2>
-		<input type="file" accept=".csv,.txt,text/csv" onchange={onFile}>
-		<p class="muted">Formato CSV (separatore <code>;</code>, <code>,</code> o tabulazione). Da Excel: <em>File → Salva con nome → CSV</em>.</p>
+		<input type="file" accept=".csv,.txt,.xls,.xlsx,.ods,text/csv" onchange={onFile}>
+		<p class="muted">CSV (separatore <code>;</code>, <code>,</code> o tabulazione) oppure Excel (<code>.xls</code>, <code>.xlsx</code>) e LibreOffice (<code>.ods</code>): viene letto il primo foglio.</p>
 	</div>
+
+	{#if data.history.length}
+	<details class="panel" open={!mapping}>
+		<summary><strong><i class="fas fa-history"></i> Importazioni recenti</strong></summary>
+		<div class="table-responsive" style="margin-top:10px;">
+			<table class="mini">
+				<thead><tr><th>Data</th><th>File</th><th>Conto</th><th>Utente</th><th>Movimenti</th><th></th></tr></thead>
+				<tbody>
+					{#each data.history as h (h.batch)}
+						<tr class:dim={h.undone || h.remaining === 0}>
+							<td>{new Date(h.at).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })}</td>
+							<td class="desc-cell">{h.file || '—'}</td>
+							<td>{h.account || '—'}</td>
+							<td>{h.user}</td>
+							<td>{h.remaining} / {h.count}</td>
+							<td>
+								{#if h.undone || h.remaining === 0}
+									<span class="muted">{h.undone ? 'annullata' : 'eliminati'}</span>
+								{:else}
+									<form method="POST" action="?/undo" use:enhance={({ cancel }) => { if (!confirm(`Eliminare i ${h.remaining} movimenti di questa importazione?`)) cancel(); }} style="margin:0;">
+										<input type="hidden" name="batch" value={h.batch}>
+										<button class="chip" style="color:var(--accent-red); border-color:var(--accent-red);"><i class="fas fa-undo"></i> Annulla</button>
+									</form>
+								{/if}
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	</details>
+	{/if}
 
 	{#if mapping}
 	<!-- Step 2 -->
@@ -282,7 +364,7 @@
 	<div class="panel">
 		<h2><span class="step">4</span> Controlla e importa</h2>
 		<p class="muted">
-			La categoria è suggerita dai movimenti già registrati con la stessa descrizione (<i class="fas fa-magic"></i>).
+			La categoria viene da una <a href="{base}/settings/rules">regola</a> (<i class="fas fa-magic"></i>) o dai movimenti già registrati con la stessa descrizione (<i class="fas fa-history"></i>).
 			I possibili doppioni sono segnalati; quelli identici sono già esclusi.
 			Spunta <i class="fas fa-exchange-alt"></i> per i giroconti verso altri tuoi conti: non conteranno come uscite.
 		</p>
@@ -341,7 +423,12 @@
 								<select bind:value={r.category} aria-label="Categoria">
 									{#each r.amount < 0 ? data.expenseCategories : data.incomeCategories as c}<option value={c}>{c}</option>{/each}
 								</select>
-								{#if r.suggested}<i class="fas fa-magic muted" title="Categoria suggerita dallo storico"></i>{/if}
+								{#if r.source === 'rule'}
+									<i class="fas fa-magic" style="color:var(--accent-blue);" title="Regola: descrizione contiene «{r.rule}»"></i>
+								{:else if r.source === 'history'}
+									<i class="fas fa-history muted" title="Categoria suggerita dai movimenti con la stessa descrizione"></i>
+								{/if}
+								{#each r.tags as t}<span class="flag" style="background:var(--bg-secondary);">{t}</span>{/each}
 							</td>
 							<td><input type="checkbox" bind:checked={r.transfer} aria-label="Trasferimento"></td>
 						</tr>

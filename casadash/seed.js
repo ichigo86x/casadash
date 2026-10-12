@@ -116,6 +116,18 @@ db.exec(`
         created_by INTEGER REFERENCES users(id)
     );
     CREATE INDEX IF NOT EXISTS goal_contributions_goal_idx ON goal_contributions(goal_id);
+
+    CREATE TABLE IF NOT EXISTS rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pattern TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'any',
+        category TEXT,
+        add_tags TEXT NOT NULL DEFAULT '[]',
+        mark_transfer INTEGER NOT NULL DEFAULT 0,
+        priority INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_by INTEGER REFERENCES users(id)
+    );
 `);
 
 try {
@@ -138,6 +150,10 @@ try {
 	}
 
 	const userTableInfo = db.prepare("PRAGMA table_info('users');").all();
+	if (!userTableInfo.some(col => col.name === 'ha_user_id')) {
+		console.log("Applying structural update: ADD COLUMN ha_user_id TO users");
+		db.prepare("ALTER TABLE users ADD COLUMN ha_user_id TEXT;").run();
+	}
 	if (!userTableInfo.some(col => col.name === 'role')) {
 		// Before roles everybody could do everything: the first account becomes the administrator
 		console.log("Applying structural update: ADD COLUMN role TO users");
@@ -149,6 +165,11 @@ try {
 		db.prepare("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;").run();
 	}
 
+	if (!tableInfo.some(col => col.name === 'import_batch')) {
+		console.log("Applying structural update: ADD COLUMN import_batch TO transactions");
+		db.prepare("ALTER TABLE transactions ADD COLUMN import_batch TEXT;").run();
+	}
+	db.prepare("CREATE INDEX IF NOT EXISTS transactions_import_batch_idx ON transactions(import_batch);").run();
 	const hasReceipt = tableInfo.some(col => col.name === 'receipt_path');
 	if (!hasReceipt) {
 		console.log("Applying structural update: ADD COLUMN receipt_path TO transactions");

@@ -61,6 +61,29 @@
     </div>
 
 	<!-- Summary outside the grid so it spans full width -->
+	{#if data.upcoming.length > 0}
+	{@const byAccount = Object.entries(data.upcoming.reduce((acc: Record<string, number>, u) => { const k = u.account || 'Senza conto'; acc[k] = (acc[k] || 0) + (u.type === 'income' ? u.amount : -u.amount); return acc; }, {}))}
+	<div class="calendar-card">
+		<h2><i class="fas fa-calendar-alt"></i> Scadenze dei prossimi 30 giorni</h2>
+		<div class="calendar-impact">
+			{#each byAccount as [acc, net]}
+				<span><small>{acc}</small> <strong class={net < 0 ? 'neg' : 'pos'}>{net < 0 ? '-' : '+'}{formatEuro(Math.abs(net))}</strong></span>
+			{/each}
+		</div>
+		<ul class="calendar">
+			{#each data.upcoming as u, i}
+				{#if i === 0 || data.upcoming[i - 1].date !== u.date}
+					<li class="day">{new Date(u.date + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}</li>
+				{/if}
+				<li class="item">
+					<span>{u.description} <small>· {u.category}{u.account ? ' · ' + u.account : ''}</small></span>
+					<strong class={u.type === 'expense' ? 'neg' : 'pos'}>{u.type === 'expense' ? '-' : '+'}{formatEuro(u.amount)}</strong>
+				</li>
+			{/each}
+		</ul>
+	</div>
+	{/if}
+
 	{#if Object.values(data.summary).some((s: any) => s.income > 0 || s.expense > 0)}
 	<div style="margin-bottom:20px;">
 		<h3 style="font-size:0.9rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:12px;"><i class="fas fa-chart-bar"></i> Riepilogo Ricorrenti Attivi</h3>
@@ -258,6 +281,17 @@
 </div>
 
 <style>
+	.calendar-card { background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; padding:20px; margin-bottom:24px; }
+	.calendar-card h2 { font-size:1.05rem; margin:0 0 12px; }
+	.calendar-impact { display:flex; flex-wrap:wrap; gap:16px; margin-bottom:12px; font-size:0.9rem; }
+	.calendar-impact small { color:var(--text-muted); }
+	.calendar { list-style:none; margin:0; padding:0; max-height:360px; overflow:auto; }
+	.calendar .day { font-size:0.75rem; text-transform:capitalize; color:var(--text-muted); margin-top:10px; padding-bottom:2px; border-bottom:1px solid var(--border-color); }
+	.calendar .item { display:flex; justify-content:space-between; gap:10px; padding:5px 0; font-size:0.9rem; }
+	.calendar .item small { color:var(--text-muted); }
+	.neg { color:var(--accent-red); }
+	.pos { color:var(--accent-green); }
+
 .tags-input-container { display:flex; flex-wrap:wrap; gap:8px; padding:8px; border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-input); align-items:center; }
 .tags-input-container input[type=text] { border:none; background:transparent; outline:none; flex:1; min-width:120px; color:var(--text-primary); padding:0; height:auto; }
 .tags-input-container input[type=text]:focus { outline:none; box-shadow:none; }

@@ -58,6 +58,9 @@
             <a href="{base}/settings/categories" class="nav-link {routeId.startsWith('/settings/categories') ? 'active' : ''}">
                 <i class="fas fa-tags"></i> <span>Categorie</span>
             </a>
+            <a href="{base}/settings/rules" class="nav-link {routeId.startsWith('/settings/rules') ? 'active' : ''}">
+                <i class="fas fa-magic"></i> <span>Regole</span>
+            </a>
             <a href="{base}/settings/budgets" class="nav-link {routeId.startsWith('/settings/budgets') ? 'active' : ''}">
                 <i class="fas fa-bullseye"></i> <span>Budget</span>
             </a>

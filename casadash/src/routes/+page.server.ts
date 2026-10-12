@@ -1,18 +1,18 @@
 import { db, client } from '$lib/server/db';
-import { localDateString, nextOccurrence } from '$lib/dates';
-import { transactions, budgets, categories, users, recurringTransactions } from '$lib/server/db/schema';
-import { desc, eq, and, sql, gte, lte, like, type SQL } from 'drizzle-orm';
+import { localDateString } from '$lib/dates';
+import { transactions, categories, users } from '$lib/server/db/schema';
+import { desc, eq, and, sql, gte, lte, like, inArray, type SQL } from 'drizzle-orm';
 import { fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { InvalidReceiptError, saveReceipt } from '$lib/server/receipts';
 import { hasTag, isTransfer, notTransfer } from '$lib/server/transfers';
 import { getSetting } from '$lib/server/settings';
+import { loadActiveRules } from '$lib/server/rules';
+import { upcomingRecurring } from '$lib/server/wealth';
+import { accountBalances, creditCardUnsettled, expenseSum, incomeSum, monthOverview } from '$lib/server/stats';
 
 const PAGE_SIZES = [10, 15, 25, 50, 100];
 
-// Sums of income/expense; callers add `notTransfer` so moves between own accounts never count
-const incomeSum = sql<number>`coalesce(sum(case when ${transactions.type} = 'income' then ${transactions.amount} end), 0)`;
-const expenseSum = sql<number>`coalesce(sum(case when ${transactions.type} = 'expense' then ${transactions.amount} end), 0)`;
 
 /** Transaction list filters, read from the URL so the list survives reloads and back/forward. */
 function listFilters(url: URL) {
@@ -50,11 +50,7 @@ export const load: PageServerLoad = async ({ url }) => {
 	const [totals] = await db.select({ income: incomeSum, expense: expenseSum }).from(transactions).where(notTransfer);
 	const [yearTotals] = await db.select({ expense: expenseSum }).from(transactions)
 		.where(and(notTransfer, like(transactions.date, `${yearPrefix}%`)));
-	const [monthTotals] = await db.select({ income: incomeSum, expense: expenseSum }).from(transactions)
-		.where(and(notTransfer, like(transactions.date, `${monthPrefix}%`)));
-	// Recurring spending already booked this month, kept out of the daily pace used by the forecast
-	const [monthRecurring] = await db.select({ expense: expenseSum }).from(transactions)
-		.where(and(notTransfer, like(transactions.date, `${monthPrefix}%`), hasTag('Ricorrente')));
+	const month = await monthOverview(now);
 
 	// 2. Chart data
 	const categoryRows = await db.select({ category: transactions.category, income: incomeSum, expense: expenseSum })
@@ -83,63 +79,14 @@ export const load: PageServerLoad = async ({ url }) => {
 		}
 	}
 
-	// 3. Budgets for the current month and year
-	const monthBudgets = await db.select().from(budgets).where(
-		and(eq(budgets.periodType, 'monthly'), eq(budgets.year, currentYear), eq(budgets.month, currentMonth))
-	);
-	const [annualBudgetRow] = await db.select().from(budgets).where(
-		and(eq(budgets.periodType, 'annual'), eq(budgets.year, currentYear))
-	).limit(1);
-	const monthCategoryRows = await db.select({ category: transactions.category, expense: expenseSum })
-		.from(transactions).where(and(notTransfer, like(transactions.date, `${monthPrefix}%`))).groupBy(transactions.category);
-	const monthCategoryExpenses: Record<string, number> = Object.fromEntries(monthCategoryRows.map((r) => [r.category, r.expense]));
-
-	let monthlyBudget = 0;
-	const budgetWarnings: { category: string; spent: number; limit: number; pct: number }[] = [];
-	for (const b of monthBudgets) {
-		if (b.category === 'Totale' || !b.category) {
-			monthlyBudget = b.amount;
-		} else if (b.amount > 0) {
-			const spent = monthCategoryExpenses[b.category] || 0;
-			const pct = (spent / b.amount) * 100;
-			if (pct > 80) budgetWarnings.push({ category: b.category, spent, limit: b.amount, pct });
-		}
-	}
-	budgetWarnings.sort((a, b) => b.pct - a.pct);
-	const annualBudget = annualBudgetRow?.amount || 0;
-
-	// 4. End-of-month forecast: spending so far, the same daily pace for the remaining days,
-	//    plus recurring expenses still due this month
-	const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
-	const dayOfMonth = now.getDate();
-	const monthEnd = `${monthPrefix}${String(daysInMonth).padStart(2, '0')}`;
-	const activeRecurring = await db.select().from(recurringTransactions).where(
-		and(eq(recurringTransactions.isActive, 1), eq(recurringTransactions.type, 'expense'), lte(recurringTransactions.nextDate, monthEnd))
-	);
-	let pendingRecurring = 0;
-	for (const job of activeRecurring) {
-		let d = job.nextDate;
-		for (let i = 0; i < 400 && d <= monthEnd; i++) {
-			if (d > today) pendingRecurring += job.amount;
-			d = nextOccurrence(d, job.frequency, job.anchorDay);
-		}
-	}
-	const variableSpent = monthTotals.expense - monthRecurring.expense;
-	const forecast = monthTotals.expense + (variableSpent / dayOfMonth) * (daysInMonth - dayOfMonth) + pendingRecurring;
-
-	// 5. Credit card still to be settled (overall, no date filter)
-	const [cc] = await db.select({ total: sql<number>`coalesce(sum(${transactions.amount}), 0)`, count: sql<number>`count(*)` })
-		.from(transactions).where(and(eq(transactions.paymentMethod, 'credit_card'), eq(transactions.settled, 0)));
+	// 5. Credit card still to be settled
+	const cc = await creditCardUnsettled();
 	const [lastSettled] = await db.select({ date: sql<string | null>`max(${transactions.date})` })
 		.from(transactions).where(and(eq(transactions.paymentMethod, 'credit_card'), eq(transactions.settled, 1)));
 
-	// 6. Account balances from the account tags. Transfers count here: they move money between accounts.
+	// 6. Account balances from the account tags
 	const accountTags = await getSetting<string[]>('account_tags', []);
-	const accounts: { tag: string; balance: number }[] = [];
-	for (const tag of accountTags) {
-		const [r] = await db.select({ income: incomeSum, expense: expenseSum }).from(transactions).where(hasTag(tag));
-		accounts.push({ tag, balance: r.income - r.expense });
-	}
+	const accounts = await accountBalances(accountTags);
 
 	// 7. Paginated, filtered transaction list
 	const f = listFilters(url);
@@ -183,21 +130,12 @@ export const load: PageServerLoad = async ({ url }) => {
 			totalIncome: totals.income,
 			totalExpenses: totals.expense,
 			balance: totals.income - totals.expense,
-			monthIncome: monthTotals.income,
-			monthExpenses: monthTotals.expense,
+			monthIncome: month.income,
+			monthExpenses: month.expense,
 			yearExpenses: yearTotals.expense
 		},
-		budget: {
-			monthly: monthlyBudget,
-			annual: annualBudget,
-			warnings: budgetWarnings
-		},
-		forecast: {
-			expense: forecast,
-			pendingRecurring,
-			dayOfMonth,
-			daysInMonth
-		},
+		budget: month.budget,
+		forecast: month.forecast,
 		chartData: {
 			category: {
 				labels: categoryRows.map((r) => r.category),
@@ -223,7 +161,9 @@ export const load: PageServerLoad = async ({ url }) => {
 		ccUnsettledTotal: cc.total,
 		ccUnsettledCount: cc.count,
 		lastSettledDate: lastSettled?.date || null,
-		allUsers: dbUsers
+		allUsers: dbUsers,
+		rules: await loadActiveRules(),
+		upcoming: await upcomingRecurring(accountTags)
 	};
 };
 
@@ -334,6 +274,54 @@ export const actions: Actions = {
 		if (!id) return fail(400, { error: 'ID errato' });
 		await db.delete(transactions).where(eq(transactions.id, id));
 		return { success: true };
+	},
+	// Bulk changes from the list selection: category, add/remove a tag, delete
+	bulkEdit: async ({ request, locals }) => {
+		if (!locals.user) return fail(401, { error: 'Non autorizzato' });
+		const data = await request.formData();
+		const op = data.get('op')?.toString();
+		const value = data.get('value')?.toString().trim() || '';
+		let ids: number[] = [];
+		try {
+			ids = (JSON.parse(data.get('ids')?.toString() || '[]') as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+		} catch {
+			return fail(400, { error: 'Selezione non valida' });
+		}
+		if (ids.length === 0) return fail(400, { error: 'Nessun movimento selezionato' });
+		const rows = await db.select().from(transactions).where(inArray(transactions.id, ids));
+
+		if (op === 'delete') {
+			await db.delete(transactions).where(inArray(transactions.id, ids));
+			return { bulk: `${rows.length} movimenti eliminati` };
+		}
+		if (op === 'category') {
+			const [cat] = await db.select().from(categories).where(eq(categories.name, value)).limit(1);
+			if (!cat) return fail(400, { error: 'Categoria non valida' });
+			// A category belongs to income or expense: rows of the other type are left alone
+			const matching = rows.filter((r) => r.type === cat.type).map((r) => r.id);
+			if (matching.length) await db.update(transactions).set({ category: value }).where(inArray(transactions.id, matching));
+			const skipped = rows.length - matching.length;
+			return { bulk: `Categoria «${value}» assegnata a ${matching.length} movimenti${skipped ? ` (${skipped} ${cat.type === 'expense' ? 'entrate' : 'uscite'} lasciate invariate)` : ''}` };
+		}
+		if (op === 'addTag' || op === 'removeTag') {
+			if (!value) return fail(400, { error: 'Inserisci un tag' });
+			let changed = 0;
+			db.transaction((tx) => {
+				for (const r of rows) {
+					let tags: string[] = [];
+					try { tags = JSON.parse(r.tags || '[]'); } catch {}
+					const next = op === 'addTag'
+						? (tags.includes(value) ? tags : [...tags, value])
+						: tags.filter((t) => t.toLowerCase() !== value.toLowerCase());
+					if (next.length !== tags.length) {
+						tx.update(transactions).set({ tags: JSON.stringify(next) }).where(eq(transactions.id, r.id)).run();
+						changed++;
+					}
+				}
+			});
+			return { bulk: op === 'addTag' ? `Tag «${value}» aggiunto a ${changed} movimenti` : `Tag «${value}» rimosso da ${changed} movimenti` };
+		}
+		return fail(400, { error: 'Operazione non valida' });
 	},
 	settleCC: async ({ request, locals }) => {
 		if (!locals.user) return fail(401, { error: 'Non autorizzato' });

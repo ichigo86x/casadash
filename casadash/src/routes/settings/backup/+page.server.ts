@@ -8,6 +8,8 @@ import { BACKUP_DIR, DATABASE_PATH, RESTART_EXIT_CODE, UPLOADS_DIR } from '$lib/
 import { DEFAULT_SCHEDULE, backupFilePath, listBackups, saveBackup, type BackupSchedule } from '$lib/server/backup';
 import { getSetting, setSetting } from '$lib/server/settings';
 import { requireAdmin } from '$lib/server/roles';
+import { createSensorToken, hasSensorToken, revokeSensorToken } from '$lib/server/sensors';
+import { env } from '$env/dynamic/private';
 
 const SQLITE_HEADER = Buffer.from('SQLite format 3\0', 'latin1');
 
@@ -23,11 +25,26 @@ export const load: PageServerLoad = async () => {
         schedule: await getSetting<BackupSchedule>('backup_schedule', DEFAULT_SCHEDULE),
         lastBackup: await getSetting<string | null>('backup_last', null),
         backups: listBackups(),
-        backupDir: BACKUP_DIR
+        backupDir: BACKUP_DIR,
+        sensorToken: await hasSensorToken(),
+        // In the add-on the sensors are pushed to Home Assistant automatically
+        addon: !!env.SUPERVISOR_TOKEN
     };
 };
 
 export const actions: Actions = {
+    createToken: async ({ locals }) => {
+        const denied = requireAdmin(locals);
+        if (denied) return denied;
+        // Shown once: only its hash is stored
+        return { newToken: await createSensorToken() };
+    },
+    revokeToken: async ({ locals }) => {
+        const denied = requireAdmin(locals);
+        if (denied) return denied;
+        await revokeSensorToken();
+        return { tokenRevoked: true };
+    },
     saveSchedule: async ({ request, locals }) => {
         const denied = requireAdmin(locals);
         if (denied) return denied;

@@ -41,6 +41,27 @@ Per impostare il saldo iniziale di un conto, registra un'entrata con il tag del 
    - spunta il simbolo ⇄ sui giroconti verso altri tuoi conti.
 6. Premi **Importa**.
 
+## Sensori in Home Assistant
+
+L'add-on crea e aggiorna ogni 10 minuti questi sensori (cercali in *Impostazioni → Dispositivi e servizi → Entità*):
+
+- `sensor.casadash_spese_mese`, `sensor.casadash_entrate_mese`
+- `sensor.casadash_previsione_fine_mese`, `sensor.casadash_budget_mese` (% usata, con le categorie oltre l'80% negli attributi)
+- `sensor.casadash_carta_da_saldare`
+- `sensor.casadash_scadenze_7_giorni` (elenco negli attributi)
+- `sensor.casadash_saldo_<conto>` per ogni conto e `sensor.casadash_saldo_totale`
+
+Puoi usarli in card e automazioni, ad esempio per una notifica quando la previsione supera il budget.
+
+I sensori non sopravvivono a un riavvio di Home Assistant: ricompaiono entro 10 minuti.
+
+## Accesso senza password dalla barra laterale
+
+1. Apri CasaDash dalla barra laterale di Home Assistant e accedi con il tuo utente CasaDash.
+2. Vai in **Profilo → Accesso da Home Assistant** e premi **Collega**.
+
+Da quel momento, aprendo CasaDash dalla barra laterale con quell'utente Home Assistant entri direttamente. L'accesso dalla porta diretta richiede sempre la password.
+
 ## Ruoli
 
 - **Amministratore:** gestisce utenti, backup e ripristino.

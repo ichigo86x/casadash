@@ -8,6 +8,8 @@ export const users = sqliteTable('users', {
 	displayName: text('display_name').notNull(),
 	mustChangePassword: integer('must_change_password').default(0).notNull(),
 	role: text('role').$type<'admin' | 'member'>().default('member').notNull(),
+	// Home Assistant user linked for automatic sign-in through Ingress
+	haUserId: text('ha_user_id'),
 	createdAt: text('created_at').notNull()
 });
 
@@ -31,6 +33,8 @@ export const transactions = sqliteTable('transactions', {
 	tags: text('tags').default('[]').notNull(),
 	receiptPath: text('receipt_path'),
 	settled: integer('settled').default(0).notNull(),
+	// Groups the rows of one bank import, so the import can be undone
+	importBatch: text('import_batch'),
 	createdAt: text('created_at').default('CURRENT_TIMESTAMP')
 }, (table) => ({
 	dateIdx: index('date_idx').on(table.date),
@@ -100,5 +104,18 @@ export const goalContributions = sqliteTable('goal_contributions', {
 	amount: real('amount').notNull(),
 	date: text('date').notNull(),
 	note: text('note'),
+	createdBy: integer('created_by').references(() => users.id)
+});
+
+// Automatic categorisation: "description contains <pattern>" -> category, extra tags, transfer flag
+export const rules = sqliteTable('rules', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	pattern: text('pattern').notNull(),
+	type: text('type').$type<'any' | 'expense' | 'income'>().default('any').notNull(),
+	category: text('category'),
+	addTags: text('add_tags').default('[]').notNull(),
+	markTransfer: integer('mark_transfer').default(0).notNull(),
+	priority: integer('priority').default(0).notNull(),
+	isActive: integer('is_active').default(1).notNull(),
 	createdBy: integer('created_by').references(() => users.id)
 });

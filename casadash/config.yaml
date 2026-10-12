@@ -1,5 +1,5 @@
 name: CasaDash
-version: "1.4.2"
+version: "1.5.0"
 slug: casadash
 description: Gestione del budget familiare - entrate, uscite, budget, ricorrenti e report.
 url: https://github.com/ichigo86x/casadash
@@ -7,6 +7,8 @@ arch:
   - amd64
   - aarch64
 init: false
+# Lets CasaDash publish its sensors (sensor.casadash_*) to Home Assistant
+homeassistant_api: true
 startup: application
 boot: auto
 watchdog: tcp://[HOST]:[PORT:8099]

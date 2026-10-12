@@ -12,6 +12,10 @@
     let restoring = $state(false);
 </script>
 
+<style>
+    .yaml { background:var(--bg-secondary); padding:12px; border-radius:8px; font-size:0.8rem; overflow:auto; white-space:pre; }
+</style>
+
 <div class="container" style="max-width:800px; margin:20px auto; display:flex; flex-direction:column; gap:20px;">
     <h2><i class="fas fa-archive"></i> Gestione Dati & Backup</h2>
 
@@ -122,5 +126,50 @@
             </table>
         </div>
         {/if}
+    </div>
+
+    <!-- Home Assistant sensors -->
+    <div class="budget-card" style="padding:25px; border-radius:12px;">
+        <h3 style="margin-top:0; color:var(--accent-blue);"><i class="fas fa-home"></i> Sensori per Home Assistant</h3>
+        {#if data.addon}
+            <p style="color:var(--text-muted); font-size:0.9rem;">
+                Nell'add-on i sensori sono creati in automatico e aggiornati ogni 10 minuti: cerca <code>sensor.casadash_</code> in
+                <em>Impostazioni → Dispositivi e servizi → Entità</em> (spese del mese, previsione, budget usato, saldi dei conti, carta da saldare, ricorrenti dei prossimi 7 giorni).
+            </p>
+        {/if}
+        <p style="color:var(--text-muted); font-size:0.9rem;">
+            {data.addon ? 'In alternativa, o da un\'altra installazione di Home Assistant,' : 'Con Docker o installazione diretta'} leggi i valori con l'integrazione <code>rest</code> dall'indirizzo <code>/api/sensors</code>, usando un token.
+        </p>
+        {#if form?.newToken}
+            <div style="background:var(--accent-green-glow); padding:12px; border-radius:8px; margin:10px 0;">
+                <p style="margin:0 0 6px;"><strong>Nuovo token</strong> (copialo ora, non verrà più mostrato):</p>
+                <code style="word-break:break-all; user-select:all;">{form.newToken}</code>
+            </div>
+            <pre class="yaml">rest:
+  - resource: http://INDIRIZZO_CASADASH:8099/api/sensors
+    headers:
+      Authorization: "Bearer {form.newToken}"
+    scan_interval: 900
+    sensor:
+      - name: CasaDash spese del mese
+        value_template: "{'{{'} value_json.spese_mese {'}}'}"
+        unit_of_measurement: EUR
+        device_class: monetary
+      - name: CasaDash previsione fine mese
+        value_template: "{'{{'} value_json.previsione_fine_mese {'}}'}"
+        unit_of_measurement: EUR
+        device_class: monetary</pre>
+        {/if}
+        {#if form?.tokenRevoked}<p style="color:var(--accent-green);"><i class="fas fa-check"></i> Token revocato.</p>{/if}
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+            <form method="POST" action="?/createToken" use:enhance={({ cancel }) => { if (data.sensorToken && !confirm('Il token attuale smetterà di funzionare. Continuare?')) cancel(); }}>
+                <button class="btn-submit" style="width:auto;"><i class="fas fa-key"></i> {data.sensorToken ? 'Rigenera token' : 'Crea token'}</button>
+            </form>
+            {#if data.sensorToken}
+                <form method="POST" action="?/revokeToken" use:enhance>
+                    <button class="btn-submit" style="width:auto; background:var(--bg-secondary); color:var(--text-primary);"><i class="fas fa-ban"></i> Revoca</button>
+                </form>
+            {/if}
+        </div>
     </div>
 </div>

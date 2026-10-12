@@ -55,11 +55,21 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 - **Lista e ricerca:**
   - paginazione lato server, veloce anche con anni di dati;
   - filtri per descrizione, categoria, tipo (entrata, uscita, trasferimento), metodo di pagamento, conto, importo, date e allegato;
-  - i filtri restano nell'indirizzo della pagina, quindi sopravvivono al ricaricamento.
+  - i filtri restano nell'indirizzo della pagina, quindi sopravvivono al ricaricamento;
+  - **modifiche in blocco**: seleziona più movimenti e cambia categoria (solo per i movimenti del tipo giusto), aggiungi o togli un tag, oppure eliminali.
+- **Prossimi 30 giorni:** i ricorrenti in arrivo, con il totale delle uscite previste.
 - **Carta di credito:**
   - le spese con carta di credito possono restare "da saldare";
   - la dashboard mostra totale e numero dei movimenti non ancora addebitati;
   - **saldo in blocco** per intervallo di date, con la data di partenza precompilata dall'ultimo saldo.
+
+### Regole automatiche (`/settings/rules`)
+- Formato: "se la descrizione contiene *testo* → categoria, tag aggiuntivi, trasferimento". Il confronto ignora maiuscole e accenti.
+- Ogni regola vale per le uscite, per le entrate o per entrambe. Ha una priorità e si può disattivare senza eliminarla.
+- Si applicano:
+  - mentre scrivi la descrizione di un nuovo movimento, finché non scegli la categoria a mano;
+  - nell'importazione, con precedenza sui suggerimenti presi dallo storico;
+  - ai movimenti esistenti, solo a quelli in *Altro* oppure a tutti. I tag vengono aggiunti, mai rimossi.
 
 ### Conti e trasferimenti
 - I **conti** sono tag, ad esempio `BNL`, `Poste`, `Libretto`. Si elencano in *Categorie → Conti*.
@@ -84,9 +94,10 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 - Ripartizione per categoria (entrate e uscite separate) e ripartizione giornaliera, confrontate con i budget del periodo.
 - **Esportazione CSV** compatibile con Excel (separatore `;`, codifica UTF-8 con BOM, tag inclusi).
 - **Esportazione PDF** dalla stampa del browser, con un layout pulito senza menu e filtri.
+- **Patrimonio nel tempo:** saldo di ogni conto e totale a fine mese negli ultimi 24 mesi, con la variazione sui 12 mesi. È indipendente dai filtri.
 
 ### Importazione dal conto corrente (`/import`)
-- Caricamento dell'**export CSV** dei movimenti della banca. Il file viene letto nel browser e solo le righe confermate arrivano al server.
+- Caricamento dell'export dei movimenti della banca in **CSV, Excel (`.xlsx`, `.xls`) o LibreOffice (`.ods`)**, primo foglio. Il file viene letto nel browser e solo le righe confermate arrivano al server.
 - Riconoscimento automatico, modificabile a mano:
   - separatore (`;`, `,`, tabulazione) e codifica (UTF-8 o Windows-1252);
   - riga di intestazione, anche dopo righe di preambolo con IBAN e periodo;
@@ -103,7 +114,7 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 - Di default importa solo le uscite. Le entrate si includono con un'opzione.
 - I movimenti ricevono il tag del conto scelto e il tag `Importato`, e si ritrovano con la ricerca.
 - La mappatura delle colonne viene ricordata per formato di file (impostazione `import_profiles`).
-- I file Excel vanno prima salvati come CSV.
+- **Importazioni recenti** con file, conto, utente e numero di movimenti, e **Annulla** per eliminare in un colpo tutti i movimenti di un'importazione.
 
 ### Obiettivi di risparmio (`/goals`)
 - Obiettivi con nome, importo da raggiungere, scadenza facoltativa, colore e icona.
@@ -130,6 +141,7 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 - **Esecuzione automatica:** ogni ora, in background, il server crea i movimenti scaduti con la data prevista, li etichetta con il tag `Ricorrente` e porta avanti la prossima scadenza.
 - Se l'app è rimasta spenta, al riavvio vengono registrate tutte le scadenze saltate.
 - Il giorno del mese scelto viene ricordato. Un ricorrente del 31 cade il 28/29 febbraio e torna al 31 a marzo.
+- **Calendario dei prossimi 30 giorni** per tutta la famiglia, raggruppato per giorno, con l'impatto su ciascun conto.
 
 ### Famiglia / Utenti (`/settings/users`)
 - Più utenti per nucleo familiare: tutti vedono e gestiscono gli stessi dati.
@@ -151,6 +163,28 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 - **Backup automatici** giornalieri o settimanali, con numero di copie da tenere. Si possono avviare a mano, scaricare ed eliminare.
 - **Ripristino** da un archivio ZIP di CasaDash, con riavvio automatico dell'applicazione. L'archivio viene convalidato prima di sovrascrivere i dati.
 - Gli archivi sono compatibili tra add-on, Docker e installazione diretta.
+
+### Integrazione con Home Assistant
+- **Sensori:**
+  - nell'add-on vengono pubblicati ogni 10 minuti tramite l'API del Supervisor (`homeassistant_api: true`): spese e entrate del mese, previsione di fine mese, percentuale di budget usata, carta da saldare, ricorrenti dei prossimi 7 giorni, saldo di ogni conto e saldo totale;
+  - per Docker e installazione diretta, l'endpoint **`/api/sensors`** restituisce gli stessi valori in JSON per l'integrazione `rest`. Serve un token creato in *Dati*, inviato nell'intestazione `Authorization: Bearer`; il database ne conserva solo l'hash.
+- **Accesso unico via Ingress:** ogni utente può collegare il proprio utente Home Assistant da *Profilo* ed entrare dalla barra laterale senza password.
+  - Le intestazioni `X-Remote-User-*` sono considerate attendibili solo nell'add-on, sul percorso Ingress e per richieste che arrivano dal proxy del Supervisor (`172.30.32.2`).
+
+Esempio di sensore `rest`:
+
+```yaml
+rest:
+  - resource: http://INDIRIZZO_CASADASH:8099/api/sensors
+    headers:
+      Authorization: "Bearer IL_TUO_TOKEN"
+    scan_interval: 900
+    sensor:
+      - name: CasaDash spese del mese
+        value_template: "{{ value_json.spese_mese }}"
+        unit_of_measurement: EUR
+        device_class: monetary
+```
 
 ### Interfaccia
 - Tema **scuro e chiaro**, con la preferenza salvata nel browser.
@@ -202,6 +236,7 @@ Il repository segue il formato dei **repository di add-on Home Assistant**: nell
         ├── lib/dates.ts      # Date locali e calcolo delle scadenze ricorrenti
         ├── lib/transfers.ts  # Tag "Trasferimento" (condiviso con il browser)
         ├── lib/import.ts     # Lettura dei CSV bancari: separatore, date, importi, colonne
+        ├── lib/rules.ts      # Confronto delle regole automatiche (condiviso con il browser)
         ├── lib/server/
         │   ├── config.ts     # Percorsi dati (DATA_DIR) e opzioni cookie
         │   ├── auth.ts       # Sessioni, MFA, limitazione dei tentativi
@@ -211,13 +246,19 @@ Il repository segue il formato dei **repository di add-on Home Assistant**: nell
         │   ├── settings.ts   # Impostazioni chiave/valore
         │   ├── transfers.ts  # Condizioni SQL per trasferimenti e tag
         │   ├── roles.ts      # Controllo del ruolo amministratore
+        │   ├── stats.ts      # Totali del mese, previsione, saldi (dashboard e sensori)
+        │   ├── wealth.ts     # Patrimonio nel tempo e scadenze in arrivo
+        │   ├── sensors.ts    # Sensori Home Assistant e token di /api/sensors
+        │   ├── rules.ts      # Caricamento delle regole attive
         │   └── db/           # Connessione SQLite, schema Drizzle
         └── routes/
             ├── +page.*       # Dashboard e azioni sui movimenti
             ├── login/        # Login e verifica MFA
             ├── reports/      # Report, confronto annuale, export CSV e PDF
             ├── goals/        # Obiettivi di risparmio
-            ├── import/       # Importazione dell'export CSV della banca
+            ├── import/       # Importazione dell'export della banca (CSV, Excel)
+            ├── settings/rules/ # Regole automatiche
+            ├── api/sensors/  # Valori per i sensori Home Assistant
             ├── settings/     # budgets, categories, recurring, users, profile, mfa, backup
             ├── api/backup/   # GET: download del backup ZIP
             └── uploads/receipts/[file]/  # Servizio delle ricevute
@@ -385,14 +426,15 @@ Lo schema viene creato e aggiornato a ogni avvio da `seed.js`, che aggiunge tabe
 
 | Tabella | Contenuto |
 |---|---|
-| `users` | username, hash della password, segreto TOTP opzionale, nome visualizzato, ruolo (`admin`/`member`), obbligo di cambio password |
+| `users` | username, hash della password, segreto TOTP opzionale, nome visualizzato, ruolo (`admin`/`member`), obbligo di cambio password, utente Home Assistant collegato |
 | `sessions` | sessioni attive e verifiche MFA in corso (solo l'hash SHA-256 del token), con scadenza |
-| `transactions` | tipo (`income`/`expense`), descrizione, importo, data, categoria, metodo di pagamento, tag (JSON), ricevuta, stato del saldo della carta di credito, autore |
+| `transactions` | tipo (`income`/`expense`), descrizione, importo, data, categoria, metodo di pagamento, tag (JSON), ricevuta, stato del saldo della carta di credito, lotto di importazione, autore |
 | `recurring_transactions` | regole ricorrenti: frequenza, prossima scadenza, giorno del mese di riferimento, attiva/disattiva |
 | `budgets` | tipo di periodo (`monthly`, `annual`, `annual-category`), anno, mese, categoria (`Totale` = complessivo), importo |
 | `categories` | nome, tipo, colore, icona |
+| `rules` | regole automatiche: testo da cercare, tipo, categoria, tag aggiuntivi, trasferimento, priorità, attiva |
 | `goals` / `goal_contributions` | obiettivi di risparmio e relativi versamenti (positivi) e prelievi (negativi) |
-| `settings` | impostazioni chiave/valore in JSON: conti (`account_tags`), pianificazione dei backup, mappature di importazione (`import_profiles`) |
+| `settings` | impostazioni chiave/valore in JSON: conti (`account_tags`), pianificazione dei backup, mappature e storico delle importazioni, hash del token dei sensori |
 
 ---
 

@@ -6,6 +6,8 @@ import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { isTransferTags } from '$lib/transfers';
 import { notTransfer } from '$lib/server/transfers';
+import { getSetting } from '$lib/server/settings';
+import { wealthHistory } from '$lib/server/wealth';
 
 export const load: PageServerLoad = async ({ url, locals }) => {
 	// The auth guard in hooks.server.ts already redirects anonymous requests
@@ -174,6 +176,8 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		transactions: allT,
 		summary: { income: totalIncome, expense: totalExpense, balance: totalIncome - totalExpense, transfers: transferTotal, transferCount },
 		previous,
+		// Independent of the filters: account balances over the last 24 months
+		wealth: await wealthHistory(await getSetting<string[]>('account_tags', [])),
 		breakdown: breakdownArray,
 		expenseBreakdown,
 		dailyBreakdown,

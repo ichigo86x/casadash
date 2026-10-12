@@ -7,7 +7,14 @@ import type { PageServerLoad, Actions } from './$types';
 import { SESSION_COOKIE, deleteUserSessions } from '$lib/server/auth';
 
 export const load: PageServerLoad = async ({ locals }) => {
-    return { user: locals.user };
+    const [me] = locals.user ? await db.select({ haUserId: users.haUserId }).from(users).where(eq(users.id, locals.user.id)) : [];
+    return {
+        user: locals.user,
+        // Present only when the page is opened from the Home Assistant sidebar (trusted Ingress request)
+        haUser: locals.haUser,
+        haLinked: !!me?.haUserId,
+        haLinkedToThis: !!me?.haUserId && me.haUserId === locals.haUser?.id
+    };
 };
 
 export const actions: Actions = {
@@ -47,6 +54,19 @@ export const actions: Actions = {
         await deleteUserSessions(locals.user.id, cookies.get(SESSION_COOKIE));
 
         return { success: true };
+    },
+    linkHa: async ({ locals }) => {
+        if (!locals.user) return fail(401, { error: 'Non autorizzato' });
+        if (!locals.haUser) return fail(400, { error: 'Apri CasaDash dalla barra laterale di Home Assistant per collegare il tuo utente.' });
+        // One CasaDash account per Home Assistant user
+        await db.update(users).set({ haUserId: null }).where(eq(users.haUserId, locals.haUser.id));
+        await db.update(users).set({ haUserId: locals.haUser.id }).where(eq(users.id, locals.user.id));
+        return { haSaved: true };
+    },
+    unlinkHa: async ({ locals }) => {
+        if (!locals.user) return fail(401, { error: 'Non autorizzato' });
+        await db.update(users).set({ haUserId: null }).where(eq(users.id, locals.user.id));
+        return { haSaved: true };
     },
     updateName: async ({ request, locals }) => {
         if (!locals.user) return fail(401, { error: 'Non autorizzato' });

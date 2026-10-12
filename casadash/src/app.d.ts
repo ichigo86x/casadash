@@ -11,6 +11,8 @@ declare global {
 			} | null;
 			/** Home Assistant Ingress prefix ("" when accessed directly). */
 			base: string;
+			/** Home Assistant user of a trusted Ingress request, for automatic sign-in. */
+			haUser: import('$lib/server/ingress').HaUser | null;
 		}
 		// interface PageData {}
 		// interface PageState {}

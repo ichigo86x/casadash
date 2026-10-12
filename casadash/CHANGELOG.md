@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.5.0
+
+### Novità
+- **Regole automatiche** (menu *Regole*): "se la descrizione contiene … allora categoria, tag, trasferimento".
+  - Si applicano mentre scrivi un nuovo movimento e nelle importazioni, dove hanno la precedenza sullo storico.
+  - Si possono applicare ai movimenti esistenti, solo a quelli in *Altro* oppure a tutti.
+- **Modifiche in blocco** nella lista della dashboard: seleziona più movimenti per cambiare categoria, aggiungere o togliere un tag, oppure eliminarli.
+- **Importazione:**
+  - file **Excel** (`.xlsx`, `.xls`) e LibreOffice (`.ods`);
+  - elenco delle importazioni recenti, con **Annulla** per eliminare tutti i movimenti di un'importazione.
+- **Patrimonio nel tempo** nei Report: saldo di ogni conto e totale a fine mese, ultimi 24 mesi, con la variazione sui 12 mesi.
+- **Calendario delle scadenze:** ricorrenti dei prossimi 30 giorni nella dashboard e nella pagina *Ricorrenti*, con l'impatto per conto.
+- **Sensori per Home Assistant:**
+  - nell'add-on vengono creati in automatico come `sensor.casadash_*`: spese e entrate del mese, previsione, budget usato, carta da saldare, ricorrenti dei prossimi 7 giorni, saldi dei conti;
+  - per Docker e installazione diretta c'è l'endpoint `/api/sensors` con token.
+- **Accesso unico da Home Assistant:** nell'add-on colleghi il tuo utente HA da *Profilo* e dalla barra laterale entri senza password.
+
+### Sicurezza e manutenzione
+- `adm-zip` aggiornato alla 0.6.1 (vulnerabilità con archivi ZIP malevoli) e `@sveltejs/adapter-node` alla 5.5.7.
+
 ## 1.4.2
 - Importazione: le descrizioni lunghe vanno a capo con testo più piccolo, così la colonna Categoria resta visibile.
 

@@ -82,4 +82,28 @@
         </div>
 
     </div>
+
+    <!-- Automatic sign-in from the Home Assistant sidebar -->
+    <div class="form-section" style="margin-top:30px;">
+        <h2><i class="fas fa-home"></i> Accesso da Home Assistant</h2>
+        {#if form?.haSaved}<p style="color:var(--accent-green);"><i class="fas fa-check"></i> Impostazione salvata.</p>{/if}
+        {#if data.haUser}
+            {#if data.haLinkedToThis}
+                <p>Il tuo account è collegato all'utente Home Assistant <strong>{data.haUser.displayName || data.haUser.name}</strong>: aprendo CasaDash dalla barra laterale entri senza password.</p>
+                <form method="POST" action="?/unlinkHa" use:enhance><button class="btn-submit" style="width:auto; background:var(--bg-secondary); color:var(--text-primary);"><i class="fas fa-unlink"></i> Scollega</button></form>
+            {:else}
+                <p>Stai usando CasaDash come utente Home Assistant <strong>{data.haUser.displayName || data.haUser.name}</strong>. Collegalo al tuo account per entrare dalla barra laterale senza password.</p>
+                <form method="POST" action="?/linkHa" use:enhance><button class="btn-submit" style="width:auto;"><i class="fas fa-link"></i> Collega a {data.user?.displayName}</button></form>
+            {/if}
+        {:else}
+            <p style="color:var(--text-muted);">
+                {#if data.haLinked}
+                    Il tuo account è collegato a un utente Home Assistant.
+                    <form method="POST" action="?/unlinkHa" use:enhance style="display:inline;"><button class="btn-submit" style="width:auto; padding:4px 10px; background:var(--bg-secondary); color:var(--text-primary);">Scollega</button></form>
+                {:else}
+                    Disponibile nell'add-on: apri CasaDash dalla barra laterale di Home Assistant e torna in questa pagina per collegare il tuo utente.
+                {/if}
+            </p>
+        {/if}
+    </div>
 </div>
