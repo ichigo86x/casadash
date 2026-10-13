@@ -42,7 +42,7 @@
                 Scarica interamente tutto il database SQLite e le foto degli Scontrini o Ricevute caricate in un unico file zippato. Salvalo in un luogo sicuro.
             </p>
             
-            <a href="{base}/api/backup" target="_blank" class="btn-submit" style="display:inline-block; text-align:center; text-decoration:none; background:var(--accent-blue-light); color:var(--text-primary); transition:transform 0.2s;">
+            <a href="{base}/api/backup" target="_blank" class="btn-submit btn-secondary" style="display:inline-block; text-align:center; text-decoration:none;">
                 <i class="fas fa-cloud-download-alt"></i> Scarica Archivio ZIP
             </a>
         </div>
@@ -57,10 +57,10 @@
             {#if !form?.success}
             <form method="POST" action="?/restore" enctype="multipart/form-data" use:enhance={() => { restoring = true; return async ({ update }) => { await update(); restoring = false; }; }}>
                 <div class="form-group" style="margin-bottom:15px;">
-                    <input type="file" name="backup" accept=".zip" required style="background:var(--bg-input); padding:10px; border-radius:8px; width:100%; color:var(--text-primary); border:1px solid var(--border-color);">
+                    <input type="file" name="backup" accept=".zip" required>
                 </div>
                 
-                <button type="submit" class="btn-submit" style="background:var(--accent-red); opacity: {restoring ? '0.6' : '1'}; transition:transform 0.2s;" disabled={restoring}>
+                <button type="submit" class="btn-submit btn-danger" style="opacity:{restoring ? '0.6' : '1'};" disabled={restoring}>
                     {#if restoring}
                         <i class="fas fa-spinner fa-spin"></i> Ripristino & Riavvio in corso...
                     {:else}
@@ -78,7 +78,7 @@
         {#if form?.scheduleSaved}<p style="color:var(--accent-green);"><i class="fas fa-check"></i> Pianificazione salvata.</p>{/if}
         {#if form?.backupCreated}<p style="color:var(--accent-green);"><i class="fas fa-check"></i> Creato {form.backupCreated}.</p>{/if}
         <form method="POST" action="?/saveSchedule" use:enhance={() => async ({ update }) => update({ reset: false })} style="display:flex; gap:15px; flex-wrap:wrap; align-items:flex-end;">
-            <label style="display:flex; gap:8px; align-items:center;">
+            <label class="check" style="align-self:center;">
                 <input type="checkbox" name="enabled" checked={data.schedule.enabled}> Attivi
             </label>
             <div class="form-group" style="margin:0;">
@@ -92,7 +92,7 @@
                 <label for="keep">Copie da tenere</label>
                 <input id="keep" type="number" name="keep" min="1" max="100" value={data.schedule.keep} style="width:90px;">
             </div>
-            <button type="submit" class="btn-submit" style="width:auto;"><i class="fas fa-save"></i> Salva</button>
+            <button type="submit" class="btn-submit btn-auto btn-primary-action"><i class="fas fa-save"></i> Salva</button>
         </form>
         <p style="color:var(--text-muted); font-size:0.85rem; margin-top:12px;">
             Cartella: <code>{data.backupDir}</code>
@@ -100,7 +100,7 @@
         </p>
 
         <form method="POST" action="?/runNow" use:enhance style="margin-top:10px;">
-            <button type="submit" class="btn-submit" style="width:auto; background:var(--accent-blue-light); color:var(--text-primary);"><i class="fas fa-play"></i> Esegui backup ora</button>
+            <button type="submit" class="btn-submit btn-auto btn-secondary"><i class="fas fa-play"></i> Esegui backup ora</button>
         </form>
 
         {#if data.backups.length > 0}
@@ -163,11 +163,11 @@
         {#if form?.tokenRevoked}<p style="color:var(--accent-green);"><i class="fas fa-check"></i> Token revocato.</p>{/if}
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
             <form method="POST" action="?/createToken" use:enhance={({ cancel }) => { if (data.sensorToken && !confirm('Il token attuale smetterà di funzionare. Continuare?')) cancel(); }}>
-                <button class="btn-submit" style="width:auto;"><i class="fas fa-key"></i> {data.sensorToken ? 'Rigenera token' : 'Crea token'}</button>
+                <button class="btn-submit btn-auto btn-primary-action"><i class="fas fa-key"></i> {data.sensorToken ? 'Rigenera token' : 'Crea token'}</button>
             </form>
             {#if data.sensorToken}
                 <form method="POST" action="?/revokeToken" use:enhance>
-                    <button class="btn-submit" style="width:auto; background:var(--bg-secondary); color:var(--text-primary);"><i class="fas fa-ban"></i> Revoca</button>
+                    <button class="btn-submit btn-auto btn-secondary"><i class="fas fa-ban"></i> Revoca</button>
                 </form>
             {/if}
         </div>

@@ -540,6 +540,10 @@ input[type="text"],
 input[type="number"],
 input[type="date"],
 input[type="password"],
+input[type="email"],
+input[type="search"],
+input:not([type]),
+textarea,
 select {
     width: 100%;
     padding: 11px 14px;
@@ -554,7 +558,7 @@ select {
     appearance: none;
 }
 
-input:focus, select:focus {
+input:focus, select:focus, textarea:focus {
     outline: none;
     border-color: var(--border-focus);
     box-shadow: 0 0 0 3px rgba(72, 149, 239, 0.15);
@@ -576,6 +580,70 @@ select option {
     color: var(--text-primary);
 }
 
+/* Same look for the less common controls */
+input[type="color"] {
+    width: 100%;
+    height: 44px;
+    padding: 4px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+input[type="file"] {
+    width: 100%;
+    padding: 10px;
+    background: var(--bg-input);
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+input[type="file"]::file-selector-button {
+    margin-right: 12px;
+    padding: 7px 14px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--accent-blue);
+    color: #fff;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+input[type="checkbox"], input[type="radio"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-blue);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+/* Inline checkbox + text */
+label.check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+/* Compact controls inside tables and toolbars */
+.input-sm,
+table select,
+table input[type="text"],
+table input:not([type]) {
+    padding: 6px 10px;
+    font-size: 0.85rem;
+}
+table select { padding-right: 30px; background-position: right 10px center; }
+
 .btn-submit {
     width: 100%;
     padding: 14px;
@@ -593,6 +661,35 @@ select option {
     color: white;
     background: var(--gradient-expense);
     box-shadow: 0 4px 15px rgba(231, 76, 60, 0.25);
+}
+
+.btn-submit.btn-auto {
+    width: auto;
+    padding: 11px 20px;
+}
+
+/* Neutral actions (save settings, import, ...): blue instead of the expense red */
+.btn-submit.btn-primary-action {
+    background: var(--gradient-primary);
+    box-shadow: 0 4px 15px rgba(67, 97, 238, 0.25);
+}
+
+.btn-submit.btn-secondary {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    box-shadow: none;
+}
+
+.btn-submit.btn-danger {
+    background: var(--accent-red);
+    box-shadow: 0 4px 15px rgba(231, 76, 60, 0.25);
+}
+
+.btn-submit:disabled {
+    opacity: 0.55;
+    cursor: default;
+    transform: none;
 }
 
 .btn-submit.income-mode {

@@ -193,6 +193,13 @@
 
     // CC Widget State & Logic
     let showCcWidget = $state(false);
+    // List of the card expenses still to settle, with selection to settle only some of them
+    let showCcList = $state(false);
+    let ccSelected: number[] = $state([]);
+    let ccSelectedTotal = $derived(data.ccUnsettled.filter((t) => ccSelected.includes(t.id)).reduce((a, t) => a + t.amount, 0));
+    function toggleCc(id: number) {
+        ccSelected = ccSelected.includes(id) ? ccSelected.filter((x) => x !== id) : [...ccSelected, id];
+    }
     // Pre-fill bulk-settle from date: last settled CC date, or first of last month
     let ccSettleFromDate = $state(data.lastSettledDate || '');
     // Pre-fill bulk-settle to date: today
@@ -338,6 +345,50 @@
 			<p style="color:var(--accent-green); font-size:0.875rem;"><i class="fas fa-check-circle"></i> Nessuna spesa CC in sospeso. Tutto saldato!</p>
 		</div>
 		{/if}
+
+		{#if data.ccUnsettled.length > 0}
+		<div class="cc-list-block">
+			<button type="button" class="btn-submit btn-auto btn-secondary" onclick={() => (showCcList = !showCcList)}>
+				<i class="fas fa-list"></i> {showCcList ? 'Nascondi' : 'Vedi'} le {data.ccUnsettled.length} spese da saldare
+				<i class="fas fa-chevron-{showCcList ? 'up' : 'down'}"></i>
+			</button>
+			{#if showCcList}
+				<div class="table-responsive cc-list" transition:slide={{ duration: 200 }}>
+					<table>
+						<thead>
+							<tr>
+								<th style="width:30px;"><input type="checkbox" aria-label="Seleziona tutte"
+									checked={ccSelected.length === data.ccUnsettled.length}
+									onchange={() => (ccSelected = ccSelected.length === data.ccUnsettled.length ? [] : data.ccUnsettled.map((t) => t.id))}></th>
+								<th>Data</th><th>Descrizione</th><th>Categoria</th><th style="text-align:right;">Importo</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each data.ccUnsettled as t (t.id)}
+								<tr>
+									<td><input type="checkbox" checked={ccSelected.includes(t.id)} onchange={() => toggleCc(t.id)} aria-label="Seleziona spesa"></td>
+									<td>{formatDate(t.date)}</td>
+									<td class="cc-desc">{t.description}</td>
+									<td><span class="category-tag" style="background-color: {allCategoriesMap[t.category]?.color || '#999'}">{t.category}</span></td>
+									<td class="expense-amount" style="text-align:right;">{formatEuro(t.amount)}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+				<form method="POST" action="?/settleSelected" class="cc-list-actions" use:enhance={({ formData, cancel }) => {
+					if (!confirm(`Segnare come saldate ${ccSelected.length} spese (${formatEuro(ccSelectedTotal)})?`)) return cancel();
+					formData.set('ids', JSON.stringify(ccSelected));
+					return async ({ update }) => { await update(); ccSelected = []; };
+				}}>
+					<span>{ccSelected.length ? `${ccSelected.length} selezionate · ${formatEuro(ccSelectedTotal)}` : 'Seleziona le spese addebitate per segnarle come saldate'}</span>
+					<button type="submit" class="btn-submit btn-auto btn-primary-action" disabled={ccSelected.length === 0}>
+						<i class="fas fa-check"></i> Segna come saldate
+					</button>
+				</form>
+			{/if}
+		</div>
+		{/if}
 		<form method="POST" action="?/settleCC" use:enhance={({ cancel, formData }) => {
 			if (!confirm(`Segna come saldati tutti gli acquisti CC dal ${ccSettleFromDate} al ${ccSettleToDate}?`)) { cancel(); }
 			return async ({ update }) => { await update(); };
@@ -346,11 +397,11 @@
 			<div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
 				<div style="display:flex; flex-direction:column; gap:6px;">
 					<label style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">Dal:</label>
-					<input type="date" name="from_date" bind:value={ccSettleFromDate} style="padding:8px 12px; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-input); color:var(--text-primary); outline:none;">
+					<input type="date" name="from_date" bind:value={ccSettleFromDate} class="input-sm" style="width:auto;">
 				</div>
 				<div style="display:flex; flex-direction:column; gap:6px;">
 					<label style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">Al:</label>
-					<input type="date" name="to_date" bind:value={ccSettleToDate} style="padding:8px 12px; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-input); color:var(--text-primary); outline:none;">
+					<input type="date" name="to_date" bind:value={ccSettleToDate} class="input-sm" style="width:auto;">
 				</div>
 				<button type="submit" style="padding:8px 20px; background:var(--accent-blue); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:8px; transition:opacity 0.2s;" disabled={data.ccUnsettledTotal === 0}>
 					<i class="fas fa-check-double"></i> Segna come Saldate
@@ -540,7 +591,7 @@
 
 				<div class="form-group" style="margin-top:15px; margin-bottom:20px;">
 					<label for="receipt_file"><i class="fas fa-paperclip"></i> Allega Scontrino / Ricevuta (Opzionale)</label>
-					<input type="file" id="receipt_file" accept="image/*,application/pdf" onchange={handleFileSelect} style="background:var(--bg-input); padding:10px; border-radius:8px; width:100%; color:var(--text-primary); border:1px solid var(--border-color);">
+					<input type="file" id="receipt_file" accept="image/*,application/pdf" onchange={handleFileSelect}>
                     {#if compressedReceiptBlob && receiptFileName}
                         <div style="font-size:0.8rem; color:var(--accent-green); margin-top:5px; font-weight:600;"><i class="fas fa-check-circle"></i> {receiptFileName} pronto ({Math.round(compressedReceiptBlob.size / 1024)} KB)</div>
                     {/if}
@@ -608,7 +659,7 @@
 				</button>
 				<div style="display:flex; gap:8px; align-items:center;">
 					<span>Mostra:</span>
-					<select bind:value={itemsPerPage} style="padding:4px; border-radius:4px; background:var(--bg-input); color:var(--text-primary); border:1px solid var(--border-color);">
+					<select class="input-sm" bind:value={itemsPerPage} style="width:auto;">
 						<option value={10}>10</option>
 						<option value={15}>15</option>
 						<option value={25}>25</option>
@@ -711,7 +762,7 @@
 				<strong>{selectedIds.length} selezionati</strong>
 				<form method="POST" action="?/bulkEdit" use:enhance={bulkEnhance}>
 					<input type="hidden" name="op" value="category">
-					<select name="value" bind:value={bulkCategory} required aria-label="Nuova categoria">
+					<select class="input-sm" name="value" bind:value={bulkCategory} required aria-label="Nuova categoria" style="width:auto;">
 						<option value="" disabled>Categoria…</option>
 						<optgroup label="Uscite">{#each data.expenseCategories as c}<option value={c.name}>{c.name}</option>{/each}</optgroup>
 						<optgroup label="Entrate">{#each data.incomeCategories as c}<option value={c.name}>{c.name}</option>{/each}</optgroup>
@@ -719,7 +770,7 @@
 					<button type="submit" disabled={!bulkCategory}>Assegna</button>
 				</form>
 				<form method="POST" action="?/bulkEdit" use:enhance={bulkEnhance}>
-					<input name="value" bind:value={bulkTag} list="tags_list" placeholder="Tag…" aria-label="Tag" style="width:130px;">
+					<input type="text" class="input-sm" name="value" bind:value={bulkTag} list="tags_list" placeholder="Tag…" aria-label="Tag" style="width:140px;">
 					<button type="submit" name="op" value="addTag" disabled={!bulkTag.trim()}><i class="fas fa-plus"></i> Aggiungi</button>
 					<button type="submit" name="op" value="removeTag" disabled={!bulkTag.trim()}><i class="fas fa-minus"></i> Rimuovi</button>
 				</form>
@@ -891,7 +942,7 @@
 
             <div class="form-group" style="margin-bottom:15px;">
                 <label><i class="fas fa-paperclip"></i> Scontrino (Lascia vuoto per mantenere inalterato)</label>
-                <input type="file" id="edit_receipt_file" accept="image/*,application/pdf" onchange={handleFileSelect} style="background:var(--bg-input); padding:10px; border-radius:8px; width:100%; color:var(--text-primary); border:1px solid var(--border-color);">
+                <input type="file" id="edit_receipt_file" accept="image/*,application/pdf" onchange={handleFileSelect}>
                 {#if compressedReceiptBlob && receiptFileName}
                     <div style="font-size:0.8rem; color:var(--accent-green); margin-top:5px; font-weight:600;"><i class="fas fa-check-circle"></i> Nuovo file pronto: {receiptFileName} ({Math.round(compressedReceiptBlob.size / 1024)} KB)</div>
                 {/if}
@@ -982,9 +1033,13 @@
 	.upcoming .when { color:var(--text-muted); font-variant-numeric:tabular-nums; }
 	.upcoming .what { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 	.upcoming small { color:var(--text-muted); }
+	.cc-list-block { margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid var(--border-color); }
+	.cc-list { margin-top:12px; max-height:360px; overflow:auto; }
+	.cc-list td, .cc-list th { font-size:0.85rem; }
+	.cc-desc { white-space:normal; min-width:160px; max-width:320px; overflow-wrap:anywhere; }
+	.cc-list-actions { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-top:10px; font-size:0.85rem; color:var(--text-muted); }
 	.bulk-bar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:10px 14px; margin-bottom:12px; border-radius:10px; background:rgba(67, 97, 238, 0.08); border:1px solid var(--accent-blue); position:sticky; top:70px; z-index:5; }
 	.bulk-bar form { display:flex; gap:6px; align-items:center; margin:0; }
-	.bulk-bar select, .bulk-bar input { padding:6px 8px; font-size:0.85rem; }
 	.bulk-bar button { padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-card); color:var(--text-primary); cursor:pointer; font-size:0.85rem; }
 	.bulk-bar button:disabled { opacity:0.5; cursor:default; }
 	.bulk-bar button.danger { color:var(--accent-red); border-color:var(--accent-red); }

@@ -35,7 +35,7 @@
 			<form method="POST" action="?/addGoal" use:enhance>
 				<div class="form-group">
 					<label for="name">Nome</label>
-					<input id="name" name="name" required placeholder="Es. Vacanze 2027">
+					<input type="text" id="name" name="name" required placeholder="Es. Vacanze 2027">
 				</div>
 				<div class="form-row">
 					<div class="form-group">
@@ -50,7 +50,7 @@
 				<div class="form-row">
 					<div class="form-group">
 						<label for="color">Colore</label>
-						<input id="color" name="color" type="color" value="#4361ee" style="height:44px;">
+						<input id="color" name="color" type="color" value="#4361ee">
 					</div>
 					<div class="form-group">
 						<label for="icon">Icona</label>
@@ -59,12 +59,12 @@
 						</select>
 					</div>
 				</div>
-				<button type="submit" class="btn-submit"><i class="fas fa-save"></i> Crea obiettivo</button>
+				<button type="submit" class="btn-submit btn-primary-action"><i class="fas fa-save"></i> Crea obiettivo</button>
 			</form>
 		</div>
 
 		<div class="goals-column">
-			<label style="display:flex; gap:8px; align-items:center; justify-content:flex-end; color:var(--text-muted); font-size:0.85rem;">
+			<label class="check" style="justify-content:flex-end; color:var(--text-muted);">
 				<input type="checkbox" bind:checked={showArchived}> Mostra archiviati
 			</label>
 
@@ -122,8 +122,8 @@
 						</select>
 						<input name="amount" type="number" min="0.01" step="0.01" placeholder="€" required aria-label="Importo">
 						<input name="date" type="date" value={data.today} aria-label="Data">
-						<input name="note" placeholder="Nota (facoltativa)" aria-label="Nota">
-						<button type="submit" class="btn-submit" style="width:auto;" aria-label="Registra movimento" title="Registra movimento"><i class="fas fa-check"></i></button>
+						<input type="text" name="note" placeholder="Nota (facoltativa)" aria-label="Nota">
+						<button type="submit" class="btn-submit btn-auto btn-primary-action" aria-label="Registra movimento" title="Registra movimento"><i class="fas fa-check"></i></button>
 					</form>
 					{/if}
 
@@ -157,13 +157,13 @@
 		<h2>Modifica obiettivo</h2>
 		<form method="POST" action="?/editGoal" use:enhance={() => async ({ result, update }) => { await update(); if (result.type === 'success') editing = null; }}>
 			<input type="hidden" name="id" value={editing.id}>
-			<div class="form-group"><label for="e_name">Nome</label><input id="e_name" name="name" required value={editing.name}></div>
+			<div class="form-group"><label for="e_name">Nome</label><input type="text" id="e_name" name="name" required value={editing.name}></div>
 			<div class="form-row">
 				<div class="form-group"><label for="e_target">Obiettivo (€)</label><input id="e_target" name="target" type="number" min="0.01" step="0.01" required value={editing.target}></div>
 				<div class="form-group"><label for="e_deadline">Entro il</label><input id="e_deadline" name="deadline" type="date" value={editing.deadline || ''}></div>
 			</div>
 			<div class="form-row">
-				<div class="form-group"><label for="e_color">Colore</label><input id="e_color" name="color" type="color" value={editing.color} style="height:44px;"></div>
+				<div class="form-group"><label for="e_color">Colore</label><input id="e_color" name="color" type="color" value={editing.color}></div>
 				<div class="form-group">
 					<label for="e_icon">Icona</label>
 					<select id="e_icon" name="icon" value={editing.icon}>
@@ -172,8 +172,8 @@
 				</div>
 			</div>
 			<div style="display:flex; gap:10px;">
-				<button type="button" class="btn-submit" style="background:var(--bg-secondary); color:var(--text-primary);" onclick={() => (editing = null)}>Annulla</button>
-				<button type="submit" class="btn-submit"><i class="fas fa-save"></i> Salva</button>
+				<button type="button" class="btn-submit btn-secondary" onclick={() => (editing = null)}>Annulla</button>
+				<button type="submit" class="btn-submit btn-primary-action"><i class="fas fa-save"></i> Salva</button>
 			</div>
 		</form>
 	</div>
@@ -192,7 +192,7 @@
 	.goal-actions button:hover { color:var(--text-primary); }
 	.muted { color:var(--text-muted); font-size:0.85rem; margin:0; }
 	.contribute { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
-	.contribute select, .contribute input { padding:8px; flex:1; min-width:90px; }
+	.contribute select, .contribute input { flex:1; min-width:110px; width:auto; }
 	details { margin-top:10px; }
 	summary { cursor:pointer; }
 	.contributions { list-style:none; padding:0; margin:8px 0 0; display:flex; flex-direction:column; gap:4px; }

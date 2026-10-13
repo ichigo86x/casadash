@@ -50,7 +50,7 @@
                             <label for="code">Codice a 6 cifre</label>
                             <input type="text" inputmode="numeric" id="code" name="code" placeholder="Es. 123 456" pattern="[0-9 ]+" maxlength="7" required style="font-size:1.5rem; text-align:center; letter-spacing:8px;">
                         </div>
-                        <button type="submit" class="btn-submit" style="width:100%;">
+                        <button type="submit" class="btn-submit btn-primary-action">
                             <i class="fas fa-shield-alt"></i> Conferma & Attiva
                         </button>
                     </form>

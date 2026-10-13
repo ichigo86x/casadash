@@ -53,7 +53,7 @@
                         </select>
                     </div>
                 </div>
-                <button type="submit" class="btn-submit">
+                <button type="submit" class="btn-submit btn-primary-action">
                     <i class="fas fa-save"></i> Crea Categoria
                 </button>
             </form>
@@ -99,7 +99,7 @@
         </p>
         <form method="POST" action="?/setAccounts" use:enhance={() => async ({ update }) => update({ reset: false })} style="display:flex; gap:10px; flex-wrap:wrap;">
             <input type="text" name="accounts" value={data.accountTags.join(', ')} placeholder="BNL, Poste, Libretto" style="flex:1; min-width:220px;">
-            <button type="submit" class="btn-submit" style="width:auto;"><i class="fas fa-save"></i> Salva conti</button>
+            <button type="submit" class="btn-submit btn-auto btn-primary-action"><i class="fas fa-save"></i> Salva conti</button>
         </form>
     </div>
 </div>
@@ -141,7 +141,7 @@
                 Modificando il nome, tutte le transazioni passate legate a questa categoria verranno aggiornate per mantenere la coerenza storica.
             </div>
 
-            <button type="submit" class="btn-submit" style="width:100%;">
+            <button type="submit" class="btn-submit btn-primary-action">
                 <i class="fas fa-save"></i> Salva Modifiche
             </button>
         </form>

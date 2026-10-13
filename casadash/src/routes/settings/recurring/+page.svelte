@@ -212,7 +212,7 @@
                     <i class="fas {editingId ? 'fa-save' : 'fa-robot'}"></i> {editingId ? 'Salva Modifiche' : 'Avvia Automazione'}
                 </button>
                 {#if editingId}
-                <button type="button" class="btn-submit" style="background: var(--bg-secondary); color: var(--text-primary); flex: 0.3;" onclick={cancelEdit}>
+                <button type="button" class="btn-submit btn-secondary" style="flex:0.3;" onclick={cancelEdit}>
                     <i class="fas fa-times"></i> Annulla
                 </button>
                 {/if}

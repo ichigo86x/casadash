@@ -14,7 +14,7 @@
 {#snippet ruleFields(r: any)}
 	<div class="form-group">
 		<label for="pattern-{r?.id ?? 'new'}">Se la descrizione contiene</label>
-		<input id="pattern-{r?.id ?? 'new'}" name="pattern" required placeholder="Es. ESSELUNGA" value={r?.pattern ?? ''}>
+		<input type="text" id="pattern-{r?.id ?? 'new'}" name="pattern" required placeholder="Es. ESSELUNGA" value={r?.pattern ?? ''}>
 	</div>
 	<div class="form-row">
 		<div class="form-group">
@@ -36,10 +36,10 @@
 	</div>
 	<div class="form-group">
 		<label for="tags-{r?.id ?? 'new'}">Aggiungi tag (separati da virgola)</label>
-		<input id="tags-{r?.id ?? 'new'}" name="add_tags" placeholder={data.accounts.length ? `Es. Spesa, ${data.accounts[0]}` : 'Es. Spesa'} value={r ? ruleTags(r).join(', ') : ''}>
+		<input type="text" id="tags-{r?.id ?? 'new'}" name="add_tags" placeholder={data.accounts.length ? `Es. Spesa, ${data.accounts[0]}` : 'Es. Spesa'} value={r ? ruleTags(r).join(', ') : ''}>
 	</div>
 	<div class="form-row">
-		<label class="check"><input type="checkbox" name="mark_transfer" checked={!!r?.markTransfer}> È un trasferimento tra conti</label>
+		<label class="check" style="flex:1; align-self:center;"><input type="checkbox" name="mark_transfer" checked={!!r?.markTransfer}> È un trasferimento tra conti</label>
 		<div class="form-group">
 			<label for="priority-{r?.id ?? 'new'}">Priorità</label>
 			<input id="priority-{r?.id ?? 'new'}" name="priority" type="number" value={r?.priority ?? 0} title="Se più regole corrispondono vince quella con priorità più alta">
@@ -65,7 +65,7 @@
 			<h2><i class="fas fa-plus-circle"></i> Nuova regola</h2>
 			<form method="POST" action="?/add" use:enhance>
 				{@render ruleFields(null)}
-				<button type="submit" class="btn-submit"><i class="fas fa-save"></i> Salva regola</button>
+				<button type="submit" class="btn-submit btn-primary-action"><i class="fas fa-save"></i> Salva regola</button>
 			</form>
 			<p class="muted" style="margin-top:12px;">Il confronto ignora maiuscole e accenti. Esempio: <code>esselunga</code> riconosce "PAGAMENTO POS ESSELUNGA MILANO".</p>
 		</div>
@@ -109,8 +109,8 @@
 				<div class="apply">
 					<h3><i class="fas fa-play-circle"></i> Applica ai movimenti esistenti</h3>
 					<form method="POST" action="?/apply" use:enhance style="display:flex; gap:10px; flex-wrap:wrap;">
-						<button class="btn-submit" style="width:auto;" name="scope" value="uncategorized"><i class="fas fa-filter"></i> Solo quelli in "Altro"</button>
-						<button class="btn-submit" style="width:auto; background:var(--accent-orange, #e67e22);" name="scope" value="all"
+						<button class="btn-submit btn-auto btn-primary-action" name="scope" value="uncategorized"><i class="fas fa-filter"></i> Solo quelli in "Altro"</button>
+						<button class="btn-submit btn-auto btn-danger" name="scope" value="all"
 							onclick={(e) => { if (!confirm('Le regole sovrascriveranno la categoria di tutti i movimenti che corrispondono. Continuare?')) e.preventDefault(); }}>
 							<i class="fas fa-sync-alt"></i> Tutti i movimenti
 						</button>
@@ -130,8 +130,8 @@
 			<input type="hidden" name="id" value={editing.id}>
 			{@render ruleFields(editing)}
 			<div style="display:flex; gap:10px;">
-				<button type="button" class="btn-submit" style="background:var(--bg-secondary); color:var(--text-primary);" onclick={() => (editing = null)}>Annulla</button>
-				<button type="submit" class="btn-submit"><i class="fas fa-save"></i> Salva</button>
+				<button type="button" class="btn-submit btn-secondary" onclick={() => (editing = null)}>Annulla</button>
+				<button type="submit" class="btn-submit btn-primary-action"><i class="fas fa-save"></i> Salva</button>
 			</div>
 		</form>
 	</div>
@@ -140,7 +140,6 @@
 
 <style>
 	.muted { color:var(--text-muted); font-size:0.85rem; }
-	.check { display:flex; gap:8px; align-items:center; font-size:0.9rem; flex:1; }
 	.wrap { white-space:normal; }
 	.pill { display:inline-block; font-size:0.75rem; padding:2px 8px; border-radius:10px; background:var(--bg-secondary); border:1px solid var(--border-color); margin:2px 4px 2px 0; }
 	.pill.tag { border-style:dashed; }

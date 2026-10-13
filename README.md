@@ -62,6 +62,7 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
   - le spese con carta di credito possono restare "da saldare";
   - la dashboard mostra totale e numero dei movimenti non ancora addebitati;
   - **saldo in blocco** per intervallo di date, con la data di partenza precompilata dall'ultimo saldo.
+  - **elenco delle spese da saldare** con selezione, per segnare come saldate solo quelle addebitate.
 
 ### Regole automatiche (`/settings/rules`)
 - Formato: "se la descrizione contiene *testo* → categoria, tag aggiuntivi, trasferimento". Il confronto ignora maiuscole e accenti.

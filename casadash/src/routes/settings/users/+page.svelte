@@ -49,7 +49,7 @@
                         <option value="admin">Amministratore: anche utenti e backup</option>
                     </select>
                 </div>
-                <button type="submit" class="btn-submit">
+                <button type="submit" class="btn-submit btn-primary-action">
                     <i class="fas fa-save"></i> Crea Profilo
                 </button>
             </form>

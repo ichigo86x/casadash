@@ -81,6 +81,11 @@ export const load: PageServerLoad = async ({ url }) => {
 
 	// 5. Credit card still to be settled
 	const cc = await creditCardUnsettled();
+	// The card expenses still to settle, oldest first (the order they will be charged)
+	const ccUnsettled = await db.select().from(transactions)
+		.where(and(eq(transactions.paymentMethod, 'credit_card'), eq(transactions.settled, 0)))
+		.orderBy(transactions.date, transactions.id)
+		.limit(500);
 	const [lastSettled] = await db.select({ date: sql<string | null>`max(${transactions.date})` })
 		.from(transactions).where(and(eq(transactions.paymentMethod, 'credit_card'), eq(transactions.settled, 1)));
 
@@ -160,6 +165,7 @@ export const load: PageServerLoad = async ({ url }) => {
 		uniqueTags: tagRows.map((r) => String(r.tag)),
 		ccUnsettledTotal: cc.total,
 		ccUnsettledCount: cc.count,
+		ccUnsettled,
 		lastSettledDate: lastSettled?.date || null,
 		allUsers: dbUsers,
 		rules: await loadActiveRules(),
@@ -322,6 +328,21 @@ export const actions: Actions = {
 			return { bulk: op === 'addTag' ? `Tag «${value}» aggiunto a ${changed} movimenti` : `Tag «${value}» rimosso da ${changed} movimenti` };
 		}
 		return fail(400, { error: 'Operazione non valida' });
+	},
+	// Settles (or un-settles) the selected credit card expenses
+	settleSelected: async ({ request, locals }) => {
+		if (!locals.user) return fail(401, { error: 'Non autorizzato' });
+		const data = await request.formData();
+		let ids: number[] = [];
+		try {
+			ids = (JSON.parse(data.get('ids')?.toString() || '[]') as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+		} catch {
+			return fail(400, { error: 'Selezione non valida' });
+		}
+		if (ids.length === 0) return fail(400, { error: 'Nessuna spesa selezionata' });
+		await db.update(transactions).set({ settled: 1 })
+			.where(and(inArray(transactions.id, ids), eq(transactions.paymentMethod, 'credit_card')));
+		return { success: true, action: 'settleSelected', settled: ids.length };
 	},
 	settleCC: async ({ request, locals }) => {
 		if (!locals.user) return fail(401, { error: 'Non autorizzato' });

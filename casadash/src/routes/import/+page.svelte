@@ -353,7 +353,7 @@
 		{#if data.accounts.length === 0}
 			<p class="muted">Suggerimento: elenca i tuoi conti in <a href="{base}/settings/categories">Categorie → Conti</a> per assegnare i movimenti importati al conto giusto.</p>
 		{/if}
-		<button type="button" class="btn-submit" style="width:auto; margin-top:10px;" disabled={busy || candidates.length === 0} onclick={analyze}>
+		<button type="button" class="btn-submit btn-auto btn-primary-action" style="margin-top:10px;" disabled={busy || candidates.length === 0} onclick={analyze}>
 			<i class="fas {busy ? 'fa-spinner fa-spin' : 'fa-search'}"></i> Analizza {candidates.length} movimenti
 		</button>
 	</div>
@@ -383,6 +383,7 @@
 							<td class="desc-cell">
 								{#if r.editing}
 									<input
+										type="text"
 										class="desc-input"
 										bind:value={r.description}
 										use:autofocus
@@ -438,7 +439,7 @@
 		</div>
 		<div style="display:flex; justify-content:space-between; align-items:center; margin-top:15px; flex-wrap:wrap; gap:10px;">
 			<span class="muted">Selezionati {selected.length} su {review.length} · uscite {formatEuro(selectedExpense)}</span>
-			<button type="button" class="btn-submit" style="width:auto;" disabled={busy || selected.length === 0} onclick={doImport}>
+			<button type="button" class="btn-submit btn-auto btn-primary-action" disabled={busy || selected.length === 0} onclick={doImport}>
 				<i class="fas {busy ? 'fa-spinner fa-spin' : 'fa-file-import'}"></i> Importa {selected.length} movimenti
 			</button>
 		</div>
@@ -451,8 +452,8 @@
 	.panel h2 { font-size:1.05rem; margin:0 0 14px; display:flex; gap:10px; align-items:center; }
 	.step { display:inline-flex; width:26px; height:26px; border-radius:50%; background:var(--accent-blue); color:#fff; align-items:center; justify-content:center; font-size:0.85rem; }
 	.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:14px; }
-	.grid label { display:flex; flex-direction:column; gap:6px; font-size:0.85rem; color:var(--text-muted); }
-	.grid label.check { flex-direction:row; align-items:center; gap:8px; }
+	.grid > label:not(.check) { display:flex; flex-direction:column; gap:6px; margin:0; }
+	.grid > label.check { align-self:end; padding-bottom:12px; }
 	.muted { color:var(--text-muted); font-size:0.85rem; }
 	.label-title { font-size:0.85rem; color:var(--text-muted); margin:14px 0 6px; }
 	.chips { display:flex; flex-wrap:wrap; gap:6px; }
@@ -463,12 +464,11 @@
 	.flag { font-size:0.7rem; padding:2px 8px; border-radius:10px; margin-left:6px; white-space:nowrap; }
 	.flag.red { background:var(--accent-red-glow); color:var(--accent-red); }
 	.flag.orange { background:rgba(230, 126, 34, 0.15); color:#e67e22; }
-	td select { padding:4px 6px; font-size:0.85rem; }
 	.desc { background:none; border:none; padding:2px 4px; margin:-2px -4px; color:var(--text-primary); cursor:text; text-align:left; font:inherit; border-radius:4px; }
 	.desc:hover { background:var(--bg-secondary); }
 	.desc i { font-size:0.7rem; color:var(--text-muted); opacity:0; }
 	.desc:hover i, .desc:focus i { opacity:1; }
-	.desc-input { width:100%; min-width:160px; padding:4px 6px; font-size:0.8rem; }
+	.desc-input { min-width:160px; }
 	/* Long bank descriptions wrap in a narrow column so category and checkboxes stay visible
 	   (tables are nowrap globally in app.css) */
 	.desc-cell { white-space:normal; min-width:160px; max-width:300px; font-size:0.8rem; line-height:1.3; overflow-wrap:anywhere; }

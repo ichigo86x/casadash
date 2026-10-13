@@ -37,7 +37,7 @@
                 <label for="annual_total_amount">Tetto massimo per l'intero anno {selectedYear} (€)</label>
                 <input id="annual_total_amount" type="number" name="amount" min="0" step="1" value={data.annualBudget > 0 ? data.annualBudget : ''} placeholder="Inserisci 0 per rimuovere">
             </div>
-            <button type="submit" class="btn-submit" style="width:auto; padding:12px 20px;"><i class="fas fa-save"></i> Salva</button>
+            <button type="submit" class="btn-submit btn-auto btn-primary-action"><i class="fas fa-save"></i> Salva</button>
         </form>
     </div>
 
@@ -108,7 +108,7 @@
                 <label for="monthly_total_amount">Tetto massimo totale per {italianMonths[selectedMonth-1]} (€)</label>
                 <input id="monthly_total_amount" type="number" name="amount" min="0" step="1" value={globalMonthlyBudget > 0 ? globalMonthlyBudget : ''} placeholder="Inserisci 0 per rimuovere">
             </div>
-            <button type="submit" class="btn-submit" style="width:auto; padding:12px 20px;"><i class="fas fa-save"></i> Salva</button>
+            <button type="submit" class="btn-submit btn-auto btn-primary-action"><i class="fas fa-save"></i> Salva</button>
         </form>
     </div>
 </div>

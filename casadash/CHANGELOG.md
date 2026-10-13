@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.1
+- **Carta di credito:** nel riquadro della dashboard c'è il pulsante *Vedi le spese da saldare*. Mostra l'elenco delle spese non ancora addebitate, dalla più vecchia, e permette di selezionarle e segnarle come saldate. Resta disponibile anche il saldo in blocco per date.
+- **Stile uniforme dei form:** tutti i campi hanno lo stesso aspetto del form *Nuova transazione*, compresi quelli di Importa, Regole e Obiettivi, i caricamenti di file, i colori e le caselle di spunta. I pulsanti delle impostazioni sono blu (azione), grigi (secondaria) o rossi (distruttiva). Il rosso e il verde restano per uscite ed entrate.
+
 ## 1.5.0
 
 ### Novità
