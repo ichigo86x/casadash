@@ -39,7 +39,7 @@
 		"drizzle-kit": "^0.31.8",
 		"drizzle-orm": "^0.45.1",
 		"js-cookie": "^3.0.5",
-		"prettier": "^3.8.1",
+		"prettier": "^3.10.1",
 		"prettier-plugin-svelte": "^3.4.1",
 		"prettier-plugin-tailwindcss": "^0.7.2",
 		"svelte": "^5.51.0",
