@@ -4,7 +4,7 @@
 # because its base images do not ship Node.js.
 
 # --- Build stage: native modules (better-sqlite3) and the SvelteKit bundle ---
-FROM node:24-alpine AS build
+FROM node:26-alpine AS build
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -13,7 +13,7 @@ COPY . .
 RUN npm run build && npm prune --omit=dev
 
 # --- Runtime stage ---
-FROM node:24-alpine
+FROM node:26-alpine
 RUN apk add --no-cache tini su-exec
 WORKDIR /app
 ENV NODE_ENV=production
