@@ -38,6 +38,7 @@ function listFilters(url: URL) {
 		from: p.get('from') || '',
 		to: p.get('to') || '',
 		attachment: p.get('att') || '',
+		batch: (p.get('batch') || '').slice(0, 60),
 		page: Math.max(1, parseInt(p.get('page') || '1') || 1),
 		size: PAGE_SIZES.includes(size) ? size : 15
 	};
@@ -118,6 +119,7 @@ export const load: PageServerLoad = async ({ url }) => {
 	if (f.max !== null) conditions.push(lte(transactions.amount, f.max));
 	if (f.from) conditions.push(gte(transactions.date, f.from));
 	if (f.to) conditions.push(lte(transactions.date, f.to));
+	if (f.batch) conditions.push(eq(transactions.importBatch, f.batch));
 	if (f.attachment === 'with') conditions.push(sql`${transactions.receiptPath} IS NOT NULL`);
 	if (f.attachment === 'without') conditions.push(sql`${transactions.receiptPath} IS NULL`);
 	const where = conditions.length ? and(...conditions) : undefined;

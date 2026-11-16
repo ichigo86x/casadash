@@ -1,13 +1,14 @@
 import { fail } from '@sveltejs/kit';
 import crypto from 'crypto';
-import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
-import { db } from '$lib/server/db';
+import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { client, db } from '$lib/server/db';
 import { categories, transactions } from '$lib/server/db/schema';
 import { getSetting, setSetting } from '$lib/server/settings';
 import { descriptionKey, parseDate, type Mapping } from '$lib/import';
 import { TRANSFER_TAG } from '$lib/transfers';
 import { matchRule, ruleTags } from '$lib/rules';
 import { loadActiveRules } from '$lib/server/rules';
+import { audit } from '$lib/server/audit';
 import type { Actions, PageServerLoad } from './$types';
 
 // Tag added to every imported movement, so an import can be found (and undone) from the search
@@ -27,7 +28,9 @@ export const load: PageServerLoad = async () => {
 		profiles: await getSetting<Record<string, Mapping>>('import_profiles', {}),
 		expenseCategories: dbCategories.filter((c) => c.type === 'expense').map((c) => c.name),
 		incomeCategories: dbCategories.filter((c) => c.type === 'income').map((c) => c.name),
-		history: await importHistory()
+		history: await importHistory(),
+		// Tags already in use, to suggest while editing an import
+		knownTags: (client.prepare('SELECT DISTINCT j.value AS tag FROM transactions t, json_each(t.tags) j WHERE json_valid(t.tags) ORDER BY 1').all() as { tag: string }[]).map((r) => String(r.tag))
 	};
 };
 
@@ -192,6 +195,56 @@ export const actions: Actions = {
 
 		console.log(`[IMPORT] ${values.length} movimenti importati da ${locals.user!.username}${account ? ` (conto ${account})` : ''}`);
 		return { imported: values.length, batch };
+	},
+
+	// Fixes a whole import after the fact: add or remove a tag, change category, account or payment method
+	editBatch: async ({ request, locals }) => {
+		const data = await request.formData();
+		const batch = data.get('batch')?.toString() || '';
+		const op = data.get('op')?.toString();
+		const value = data.get('value')?.toString().trim().slice(0, 50) || '';
+		if (!batch) return fail(400, { error: 'Importazione non valida' });
+		const rows = await db.select().from(transactions).where(eq(transactions.importBatch, batch));
+		if (rows.length === 0) return fail(404, { error: 'Nessun movimento di questa importazione è rimasto' });
+		const tagsOf = (raw: string | null): string[] => { try { const t = JSON.parse(raw || '[]'); return Array.isArray(t) ? t.map(String) : []; } catch { return []; } };
+		const accounts = await getSetting<string[]>('account_tags', []);
+		let message = '';
+
+		if (op === 'addTag' || op === 'removeTag' || op === 'account') {
+			if (!value) return fail(400, { error: op === 'account' ? 'Scegli un conto' : 'Inserisci un tag' });
+			if (op === 'account' && !accounts.includes(value)) return fail(400, { error: 'Il conto non è tra quelli definiti in Categorie → Conti' });
+			let changed = 0;
+			db.transaction((tx) => {
+				for (const r of rows) {
+					const tags = tagsOf(r.tags);
+					let next: string[];
+					if (op === 'addTag') next = tags.some((t) => t.toLowerCase() === value.toLowerCase()) ? tags : [...tags, value];
+					else if (op === 'removeTag') next = tags.filter((t) => t.toLowerCase() !== value.toLowerCase());
+					// A movement belongs to one account: the previous account tags are replaced
+					else next = [value, ...tags.filter((t) => !accounts.includes(t))];
+					if (JSON.stringify(next) !== JSON.stringify(tags)) {
+						tx.update(transactions).set({ tags: JSON.stringify(next) }).where(eq(transactions.id, r.id)).run();
+						changed++;
+					}
+				}
+			});
+			message = op === 'addTag' ? `Tag «${value}» aggiunto a ${changed} movimenti` : op === 'removeTag' ? `Tag «${value}» tolto da ${changed} movimenti` : `Conto «${value}» assegnato a ${changed} movimenti`;
+		} else if (op === 'category') {
+			const [cat] = await db.select().from(categories).where(eq(categories.name, value)).limit(1);
+			if (!cat) return fail(400, { error: 'Categoria non valida' });
+			const ids = rows.filter((r) => r.type === cat.type).map((r) => r.id);
+			if (ids.length) await db.update(transactions).set({ category: value }).where(inArray(transactions.id, ids));
+			message = `Categoria «${value}» assegnata a ${ids.length} movimenti${rows.length - ids.length ? ` (${rows.length - ids.length} di tipo diverso lasciati invariati)` : ''}`;
+		} else if (op === 'payment') {
+			if (!['bancomat', 'credit_card', 'cash'].includes(value)) return fail(400, { error: 'Metodo di pagamento non valido' });
+			// Only money already charged: card expenses keep their "to settle" flag untouched unless the method becomes the card
+			await db.update(transactions).set({ paymentMethod: value, settled: value === 'credit_card' ? 0 : 1 }).where(eq(transactions.importBatch, batch));
+			message = `Metodo di pagamento aggiornato su ${rows.length} movimenti`;
+		} else {
+			return fail(400, { error: 'Operazione non valida' });
+		}
+		await audit(locals.user, 'import.edited', `${batch}: ${op} ${value}`);
+		return { edited: message, batch };
 	},
 
 	// Deletes every movement created by one import (movements already deleted by hand are simply gone)

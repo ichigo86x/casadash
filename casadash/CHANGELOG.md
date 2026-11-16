@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.1
+
+- **Modifica delle importazioni:** in *Importa → Importazioni recenti* il pulsante *Modifica* cambia in blocco tutti i movimenti di un'importazione (aggiungere o togliere un tag, assegnare il conto, cambiare categoria o metodo di pagamento). *Vedi* apre la lista con i soli movimenti di quell'importazione.
+- **Dashboard più ordinata**, anche su tablet e smartphone: *Saldi per conto* e *Finanze attuali* subito dopo la carta di credito; delle finanze si vedono solo *disponibile* e *stima a fine mese*, con il dettaglio apribile; *Consigli e anomalie* in un pulsante che apre un popup; le quattro carte in alto stanno su una riga.
+- **Popup di modifica:** se è più alto dello schermo scorre il popup, non la pagina sotto.
+- **Cambio dei filtri** della lista: non si perde più il periodo scelto.
+- Calcolo dei consigli più leggero (medie per categoria fatte dal database).
+
 ## 1.6.0
 
 ### Nuove funzionalità

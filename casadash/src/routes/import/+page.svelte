@@ -4,7 +4,9 @@
 	import { invalidateAll } from '$app/navigation';
 	import { applyMapping, guessHeaderRow, guessMapping, parseCsv, type Mapping, type ParsedRow } from '$lib/import';
 
-	let { data } = $props();
+	let { data, form } = $props();
+	// Import whose "Modifica" panel is open
+	let editingBatch = $state('');
 
 	const formatEuro = (n: number) => '€' + n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 	const formatDate = (d: string) => d.split('-').reverse().join('/');
@@ -240,10 +242,12 @@
 							<td>{h.account || '—'}</td>
 							<td>{h.user}</td>
 							<td>{h.remaining} / {h.count}</td>
-							<td>
+							<td style="white-space:nowrap;">
 								{#if h.undone || h.remaining === 0}
 									<span class="muted">{h.undone ? 'annullata' : 'eliminati'}</span>
 								{:else}
+									<a class="chip" href="{base}/?batch={h.batch}" title="Apri la lista con i soli movimenti di questa importazione"><i class="fas fa-list"></i> Vedi</a>
+									<button type="button" class="chip" onclick={() => (editingBatch = editingBatch === h.batch ? '' : h.batch)}><i class="fas fa-pen"></i> Modifica</button>
 									<form method="POST" action="?/undo" use:enhance={({ cancel }) => { if (!confirm(`Eliminare i ${h.remaining} movimenti di questa importazione?`)) cancel(); }} style="margin:0;">
 										<input type="hidden" name="batch" value={h.batch}>
 										<button class="chip" style="color:var(--accent-red); border-color:var(--accent-red);"><i class="fas fa-undo"></i> Annulla</button>
@@ -251,6 +255,54 @@
 								{/if}
 							</td>
 						</tr>
+						{#if editingBatch === h.batch}
+						<tr>
+							<td colspan="6">
+								<div class="batch-edit">
+									<p class="muted" style="margin:0 0 8px;">Cambia tutti i {h.remaining} movimenti rimasti di questa importazione.</p>
+									{#if form?.edited && form.batch === h.batch}<p style="color:var(--accent-green); margin:0 0 8px;"><i class="fas fa-check-circle"></i> {form.edited}</p>{/if}
+									{#if form?.error}<p style="color:var(--accent-red); margin:0 0 8px;"><i class="fas fa-exclamation-circle"></i> {form.error}</p>{/if}
+									<div class="batch-forms">
+										<form method="POST" action="?/editBatch" use:enhance>
+											<input type="hidden" name="batch" value={h.batch}><input type="hidden" name="op" value="addTag">
+											<input name="value" list="known-tags" placeholder="Tag da aggiungere" required>
+											<button class="chip"><i class="fas fa-plus"></i> Aggiungi tag</button>
+										</form>
+										<form method="POST" action="?/editBatch" use:enhance>
+											<input type="hidden" name="batch" value={h.batch}><input type="hidden" name="op" value="removeTag">
+											<input name="value" list="known-tags" placeholder="Tag da togliere" required>
+											<button class="chip"><i class="fas fa-minus"></i> Togli tag</button>
+										</form>
+										{#if data.accounts.length}
+										<form method="POST" action="?/editBatch" use:enhance>
+											<input type="hidden" name="batch" value={h.batch}><input type="hidden" name="op" value="account">
+											<select name="value" required><option value="" disabled selected>Conto…</option>{#each data.accounts as a}<option>{a}</option>{/each}</select>
+											<button class="chip"><i class="fas fa-university"></i> Assegna conto</button>
+										</form>
+										{/if}
+										<form method="POST" action="?/editBatch" use:enhance>
+											<input type="hidden" name="batch" value={h.batch}><input type="hidden" name="op" value="category">
+											<select name="value" required>
+												<option value="" disabled selected>Categoria…</option>
+												<optgroup label="Uscite">{#each data.expenseCategories as c}<option>{c}</option>{/each}</optgroup>
+												<optgroup label="Entrate">{#each data.incomeCategories as c}<option>{c}</option>{/each}</optgroup>
+											</select>
+											<button class="chip"><i class="fas fa-tag"></i> Cambia categoria</button>
+										</form>
+										<form method="POST" action="?/editBatch" use:enhance>
+											<input type="hidden" name="batch" value={h.batch}><input type="hidden" name="op" value="payment">
+											<select name="value" required>
+												<option value="" disabled selected>Pagamento…</option>
+												<option value="bancomat">Conto / Bancomat</option><option value="credit_card">Carta di credito</option><option value="cash">Contanti</option>
+											</select>
+											<button class="chip"><i class="fas fa-credit-card"></i> Cambia pagamento</button>
+										</form>
+									</div>
+									<datalist id="known-tags">{#each data.knownTags as t}<option value={t}></option>{/each}</datalist>
+								</div>
+							</td>
+						</tr>
+						{/if}
 					{/each}
 				</tbody>
 			</table>
@@ -458,6 +510,11 @@
 	.label-title { font-size:0.85rem; color:var(--text-muted); margin:14px 0 6px; }
 	.chips { display:flex; flex-wrap:wrap; gap:6px; }
 	.chip { font-size:0.8rem; padding:4px 10px; border-radius:14px; border:1px solid var(--border-color); background:none; color:var(--text-primary); cursor:pointer; }
+	a.chip { text-decoration:none; display:inline-block; }
+	.batch-edit { background:var(--bg-secondary); border-radius:8px; padding:12px; }
+	.batch-forms { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:10px; }
+	.batch-forms form { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin:0; }
+	.batch-forms input, .batch-forms select { flex:1; min-width:120px; }
 	.chip.on { border-color:var(--accent-blue); background:rgba(67, 97, 238, 0.12); color:var(--accent-blue); }
 	table.mini td, table.mini th { font-size:0.8rem; padding:6px 8px; }
 	tr.dim { opacity:0.45; }

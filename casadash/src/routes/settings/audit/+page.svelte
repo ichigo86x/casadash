@@ -25,7 +25,8 @@
         'bank.connected': 'Banca collegata',
         'bank.disconnected': 'Banca scollegata',
         'import.done': 'Importazione',
-        'import.undone': 'Importazione annullata'
+        'import.undone': 'Importazione annullata',
+        'import.edited': 'Importazione modificata'
     };
     const warn = (a: string) => a.endsWith('failed') || a.includes('reset') || a.includes('restored') || a.includes('deleted') || a.includes('disabled');
 </script>

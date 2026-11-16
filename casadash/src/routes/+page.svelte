@@ -21,6 +21,16 @@
 		const [y, m, d] = dateStr.split('-');
 		return `${d}/${m}/${y}`;
 	};
+	// Popups: while one is open the page behind must not scroll, only the popup does
+	let showInsights = $state(false);
+	$effect(() => {
+		document.body.style.overflow = editingTransaction || showInsights ? 'hidden' : '';
+		return () => { document.body.style.overflow = ''; };
+	});
+	function onKey(e: KeyboardEvent) {
+		if (e.key === 'Escape') { showInsights = false; }
+	}
+
 	// Transaction form state
 	let formType: 'income' | 'expense' = $state('expense');
 	let newPaymentMethod: string = $state('bancomat');
@@ -123,6 +133,8 @@
     let searchFromDate = $state(lf.from);
     let searchToDate = $state(lf.to);
     let searchAttachment = $state(lf.attachment);
+    // Only the movements of one import (link from the import page)
+    let searchBatch = $state(lf.batch);
 
     function listUrl(page: number) {
         const params = new URLSearchParams();
@@ -130,7 +142,8 @@
         set('q', searchTerm.trim()); set('cat', searchCategory); set('type', searchType);
         set('pay', searchPayment); set('account', searchAccount);
         set('min', searchMinAmount); set('max', searchMaxAmount);
-        set('from', searchFromDate); set('to', searchToDate); set('att', searchAttachment);
+        set('from', searchFromDate); set('to', searchToDate); set('att', searchAttachment); set('batch', searchBatch);
+        if (data.period !== 'month') set('p', data.period);
         if (itemsPerPage !== 15) set('size', itemsPerPage);
         if (page > 1) set('page', page);
         const qs = params.toString();
@@ -146,7 +159,7 @@
     let filtersReady = false;
     $effect(() => {
         searchTerm; searchCategory; searchType; searchPayment; searchAccount; searchMinAmount; searchMaxAmount;
-        searchFromDate; searchToDate; searchAttachment; itemsPerPage;
+        searchFromDate; searchToDate; searchAttachment; searchBatch; itemsPerPage;
         if (!filtersReady) { filtersReady = true; return; }
         clearTimeout(filterTimer);
         filterTimer = setTimeout(() => goToPage(1), 350);
@@ -378,6 +391,8 @@
 	});
 </script>
 
+<svelte:window onkeydown={onKey} />
+
 <div class="container">
 	<!-- Dashboard Cards -->
 	<div class="period-tabs">
@@ -504,11 +519,25 @@
 	{/if}
 
 
-	<!-- This month: budget, end-of-month forecast, account balances -->
-	<div class="month-panel">
-		<!-- Current finances: what the family really has -->
+	<!-- Where the money is: accounts and what is really available -->
+	<div class="finance-row">
+		{#if data.accounts.length > 0}
+		<section class="month-card">
+			<h3><i class="fas fa-university"></i> Saldi per conto</h3>
+			<div class="accounts">
+				{#each data.accounts as a}
+					<button type="button" class="account" onclick={() => { searchAccount = a.tag; showSearch = true; }} title="Mostra i movimenti di {a.tag}">
+						<span class="label">{a.tag}</span>
+						<strong class={a.balance < 0 ? 'expense-amount' : ''}>{formatEuro(a.balance)}</strong>
+					</button>
+				{/each}
+			</div>
+			<p class="month-note">Entrate e uscite con il tag del conto, trasferimenti inclusi.</p>
+		</section>
+		{/if}
+
 		{#each [data.position] as p}
-		<div class="month-card">
+		<section class="month-card">
 			<h3><i class="fas fa-wallet"></i> Finanze attuali</h3>
 			<div class="position-main">
 				<div>
@@ -520,28 +549,44 @@
 					<strong class="position-total {p.endOfMonth < 0 ? 'expense-amount' : ''}">{formatEuro(p.endOfMonth)}</strong>
 				</div>
 			</div>
-			<ul class="position-rows">
-				<li><span>{p.hasAccounts ? 'Liquidità sui conti' : 'Saldo complessivo'}</span><strong>{formatEuro(p.bank)}</strong></li>
-				<li><span>− Carta di credito da saldare</span><strong class={p.cardTotal > 0 ? 'expense-amount' : ''}>{formatEuro(p.cardTotal)}</strong></li>
-				<li class="sum"><span>= Disponibile</span><strong>{formatEuro(p.available)}</strong></li>
-				{#if p.goalsSaved > 0}
-					<li><span>− Accantonato negli <a href="{base}/goals">obiettivi</a></span><strong>{formatEuro(p.goalsSaved)}</strong></li>
-					<li class="sum"><span>= Libero da obiettivi</span><strong>{formatEuro(p.free)}</strong></li>
-				{/if}
-				{#if p.hasAssets}
-					<li><span>+ Beni e investimenti <small>({formatEuro(p.liabilities)} di debiti)</small></span><strong>{formatEuro(p.assets - p.liabilities)}</strong></li>
-					<li class="sum"><span>= <a href="{base}/wealth">Patrimonio netto</a></span><strong>{formatEuro(p.netWorth)}</strong></li>
-				{/if}
-				{#if p.pendingIncome > 0 || p.pendingExpense > 0}
-					<li><span>Ricorrenti fino a fine mese</span><strong>{#if p.pendingIncome > 0}<span class="income-amount">+{formatEuro(p.pendingIncome)}</span> {/if}{#if p.pendingExpense > 0}<span class="expense-amount">−{formatEuro(p.pendingExpense)}</span>{/if}</strong></li>
-				{/if}
-			</ul>
-			<p class="month-note">
-				{#if p.hasAccounts}Saldi dei conti definiti in Categorie → Conti. Le spese con carta non ancora addebitate sono ancora in banca fino al saldo.{:else}Nessun conto definito: uso il saldo di tutti i movimenti. Definisci i conti in Categorie → Conti per un dato più preciso.{/if}
-			</p>
-		</div>
+			<details class="position-details">
+				<summary><span class="when-closed">Mostra il dettaglio</span><span class="when-open">Nascondi il dettaglio</span></summary>
+				<ul class="position-rows">
+					<li><span>{p.hasAccounts ? 'Liquidità sui conti' : 'Saldo complessivo'}</span><strong>{formatEuro(p.bank)}</strong></li>
+					<li><span>− Carta di credito da saldare</span><strong class={p.cardTotal > 0 ? 'expense-amount' : ''}>{formatEuro(p.cardTotal)}</strong></li>
+					<li class="sum"><span>= Disponibile</span><strong>{formatEuro(p.available)}</strong></li>
+					{#if p.goalsSaved > 0}
+						<li><span>− Accantonato negli <a href="{base}/goals">obiettivi</a></span><strong>{formatEuro(p.goalsSaved)}</strong></li>
+						<li class="sum"><span>= Libero da obiettivi</span><strong>{formatEuro(p.free)}</strong></li>
+					{/if}
+					{#if p.hasAssets}
+						<li><span>+ Beni e investimenti <small>({formatEuro(p.liabilities)} di debiti)</small></span><strong>{formatEuro(p.assets - p.liabilities)}</strong></li>
+						<li class="sum"><span>= <a href="{base}/wealth">Patrimonio netto</a></span><strong>{formatEuro(p.netWorth)}</strong></li>
+					{/if}
+					{#if p.pendingIncome > 0 || p.pendingExpense > 0}
+						<li><span>Ricorrenti fino a fine mese</span><strong>{#if p.pendingIncome > 0}<span class="income-amount">+{formatEuro(p.pendingIncome)}</span> {/if}{#if p.pendingExpense > 0}<span class="expense-amount">−{formatEuro(p.pendingExpense)}</span>{/if}</strong></li>
+					{/if}
+				</ul>
+				<p class="month-note">
+					{#if p.hasAccounts}Saldi dei conti definiti in Categorie → Conti. Le spese con carta non ancora addebitate sono ancora in banca fino al saldo.{:else}Nessun conto definito: uso il saldo di tutti i movimenti. Definisci i conti in Categorie → Conti per un dato più preciso.{/if}
+				</p>
+			</details>
+		</section>
 		{/each}
+	</div>
 
+	{#if data.insights.items.length > 0}
+		{@const warnCount = data.insights.items.filter((i) => i.level === 'warn').length}
+		<button type="button" class="insights-bar {warnCount > 0 ? 'has-warn' : ''}" onclick={() => (showInsights = true)}>
+			<i class="fas fa-lightbulb"></i>
+			<span>Consigli e anomalie</span>
+			<span class="insights-badge">{warnCount > 0 ? `${warnCount} da vedere` : `${data.insights.items.length}`}</span>
+			<i class="fas fa-chevron-right" style="margin-left:auto;"></i>
+		</button>
+	{/if}
+
+	<!-- This month, deadlines and what is coming -->
+	<div class="month-panel">
 		<div class="month-card">
 			<h3><i class="fas fa-calendar-check"></i> {italianMonths[data.currentMonth - 1]} {data.currentYear}</h3>
 			<div class="month-figures">
@@ -594,17 +639,6 @@
 		</div>
 		{/if}
 
-		{#if data.insights.items.length > 0}
-		<div class="month-card">
-			<h3><i class="fas fa-lightbulb"></i> Consigli e anomalie</h3>
-			<ul class="insights">
-				{#each data.insights.items as i}
-					<li class={i.level}><i class="fas {i.level === 'good' ? 'fa-check-circle' : i.level === 'warn' ? 'fa-exclamation-triangle' : 'fa-info-circle'}"></i> {i.text}</li>
-				{/each}
-			</ul>
-		</div>
-		{/if}
-
 		{#if data.upcoming.length > 0}
 		{@const out = data.upcoming.filter((u) => u.type === 'expense').reduce((a, u) => a + u.amount, 0)}
 		{@const inn = data.upcoming.filter((u) => u.type === 'income').reduce((a, u) => a + u.amount, 0)}
@@ -626,20 +660,6 @@
 		</div>
 		{/if}
 
-		{#if data.accounts.length > 0}
-		<div class="month-card">
-			<h3><i class="fas fa-university"></i> Saldi per conto</h3>
-			<div class="accounts">
-				{#each data.accounts as a}
-					<button type="button" class="account" onclick={() => { searchAccount = a.tag; showSearch = true; }} title="Mostra i movimenti di {a.tag}">
-						<span class="label">{a.tag}</span>
-						<strong class={a.balance < 0 ? 'expense-amount' : ''}>{formatEuro(a.balance)}</strong>
-					</button>
-				{/each}
-			</div>
-			<p class="month-note">Somma di entrate e uscite con il tag del conto, trasferimenti inclusi.</p>
-		</div>
-		{/if}
 	</div>
 
 	<!-- Main Content -->
@@ -852,6 +872,13 @@
 				</div>
 			</div>
 		</h2>
+
+		{#if searchBatch}
+			<div class="batch-chip">
+				<i class="fas fa-file-import"></i> Solo i movimenti di un'importazione
+				<button type="button" onclick={() => (searchBatch = '')} aria-label="Mostra tutti i movimenti"><i class="fas fa-times"></i></button>
+			</div>
+		{/if}
 
 		{#if showSearch}
 		<div class="search-panel" transition:slide={{ duration: 300 }}>
@@ -1076,9 +1103,28 @@
 </div>
 
 <!-- Edit Transaction Modal -->
+{#if showInsights}
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+<div class="modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showInsights = false; }}>
+	<div class="modal-box" role="dialog" aria-modal="true" aria-label="Consigli e anomalie">
+		<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+			<h3 style="margin:0;"><i class="fas fa-lightbulb"></i> Consigli e anomalie</h3>
+			<button type="button" class="modal-close" onclick={() => (showInsights = false)} aria-label="Chiudi"><i class="fas fa-times"></i></button>
+		</div>
+		<ul class="insights">
+			{#each data.insights.items as i}
+				<li class={i.level}><i class="fas {i.level === 'good' ? 'fa-check-circle' : i.level === 'warn' ? 'fa-exclamation-triangle' : 'fa-info-circle'}"></i> <span>{i.text}</span></li>
+			{/each}
+		</ul>
+		<p class="month-note">Calcolati sul mese in corso rispetto ai 3 mesi precedenti e all'ultimo anno.</p>
+	</div>
+</div>
+{/if}
+
 {#if editingTransaction}
-<div class="modal-backdrop" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); backdrop-filter:blur(5px); -webkit-backdrop-filter:blur(5px); display:flex; justify-content:center; align-items:center; z-index:9999; padding:20px;">
-    <div class="modal-content" style="background:var(--bg-color); width:100%; max-width:500px; border-radius:12px; padding:25px; box-shadow:0 10px 30px rgba(0,0,0,0.3);">
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+<div class="modal-backdrop">
+    <div class="modal-box" role="dialog" aria-modal="true">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
             <h2 style="margin:0; font-size:1.3rem;"><i class="fas fa-edit"></i> Modifica Transazione</h2>
             <button onclick={closeEdit} style="background:none; border:none; font-size:1.5rem; color:var(--text-muted); cursor:pointer;"><i class="fas fa-times"></i></button>
@@ -1246,7 +1292,25 @@
 	.quick-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
 	.quick-tag { font-size:0.75rem; padding:3px 10px; border-radius:14px; border:1px dashed var(--border-color); background:none; color:var(--text-muted); cursor:pointer; }
 	.quick-tag.on { border-style:solid; border-color:var(--accent-blue); color:var(--accent-blue); background:rgba(67, 97, 238, 0.1); }
-	.month-panel { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:20px; margin-bottom:30px; }
+	.finance-row { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:16px; margin-bottom:16px; align-items:start; }
+	.month-panel { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap:16px; margin-bottom:24px; align-items:start; }
+	.modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(5px); -webkit-backdrop-filter:blur(5px); display:flex; justify-content:center; align-items:center; z-index:9999; padding:16px; overscroll-behavior:contain; }
+	.modal-box { background:var(--bg-color); width:100%; max-width:500px; max-height:calc(100vh - 32px); max-height:calc(100dvh - 32px); overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; border-radius:12px; padding:25px; box-shadow:0 10px 30px rgba(0,0,0,0.3); }
+	.modal-close { background:none; border:none; color:var(--text-muted); font-size:1.1rem; cursor:pointer; padding:6px; }
+	.batch-chip { display:inline-flex; align-items:center; gap:8px; margin:0 0 12px; padding:5px 12px; border-radius:16px; border:1px solid var(--accent-blue); background:rgba(67, 97, 238, 0.1); color:var(--accent-blue); font-size:0.85rem; }
+	.batch-chip button { background:none; border:none; color:inherit; cursor:pointer; padding:0 2px; }
+	.insights-bar { display:flex; align-items:center; gap:10px; width:100%; margin:0 0 16px; padding:12px 16px; border-radius:var(--radius-lg, 12px); border:1px solid var(--border-color); background:var(--bg-card); color:var(--text-primary); cursor:pointer; font-size:0.95rem; text-align:left; }
+	.insights-bar:hover { border-color:var(--accent-blue); }
+	.insights-bar.has-warn i:first-child { color:var(--accent-orange, #e67e22); }
+	.insights-badge { font-size:0.75rem; padding:2px 10px; border-radius:12px; background:var(--bg-secondary); color:var(--text-muted); }
+	.has-warn .insights-badge { background:rgba(230,126,34,0.15); color:var(--accent-orange, #e67e22); }
+	.position-details summary { cursor:pointer; list-style:none; font-size:0.85rem; color:var(--accent-blue); padding:6px 0; user-select:none; }
+	.position-details summary::-webkit-details-marker { display:none; }
+	.position-details .when-open { display:none; }
+	.position-details[open] .when-open { display:inline; }
+	.position-details[open] .when-closed { display:none; }
+	.position-details summary::after { content:' ▾'; }
+	.position-details[open] summary::after { content:' ▴'; }
 	.month-card { background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg, 12px); padding:20px; }
 	.month-card h3 { margin:0 0 14px; font-size:1rem; display:flex; gap:8px; align-items:center; }
 	.month-figures { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }
@@ -1256,7 +1320,7 @@
 	.month-note { font-size:0.8rem; color:var(--text-muted); margin-top:8px; }
 	.forecast-marker { position:absolute; top:-3px; bottom:-3px; width:3px; background:var(--text-primary); border-radius:2px; opacity:0.7; }
 	.insights { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; font-size:0.9rem; }
-	.insights li { display:flex; gap:8px; align-items:flex-start; }
+	.insights li { display:flex; gap:10px; align-items:flex-start; line-height:1.4; }
 	.insights li.good { color:var(--accent-green); }
 	.insights li.warn { color:var(--accent-orange, #e67e22); }
 	.insights li.info { color:var(--text-muted); }
@@ -1266,14 +1330,14 @@
 	.period-tab.on { border-color:var(--accent-blue); color:var(--accent-blue); background:rgba(67, 97, 238, 0.1); }
 	.position-main { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
 	.position-main div { display:flex; flex-direction:column; gap:4px; }
-	.position-total { font-size:1.5rem; }
+	.position-total { font-size:clamp(1.25rem, 4vw, 1.6rem); }
 	.position-rows { list-style:none; margin:0; padding:0; font-size:0.9rem; }
 	.position-rows li { display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-bottom:1px solid var(--border-color); }
 	.position-rows li.sum { font-weight:700; }
-	.accounts { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:12px; }
+	.accounts { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 130px), 1fr)); gap:10px; }
 	.account { background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; cursor:pointer; text-align:left; color:var(--text-primary); }
 	.account:hover { border-color:var(--accent-blue); }
-	@media (max-width: 600px) { .month-figures { grid-template-columns:1fr 1fr; } }
+	@media (max-width: 600px) { .month-figures { grid-template-columns:1fr 1fr; } .month-card { padding:16px; } .modal-box { padding:18px; } .insights-bar { padding:10px 12px; } }
 
 .tags-input-container { display:flex; flex-wrap:wrap; gap:8px; padding:8px; border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-input); align-items:center; }
 .tags-input-container input[type=text] { border:none; background:transparent; outline:none; flex:1; min-width:120px; color:var(--text-primary); padding:0; height:auto; }

@@ -47,12 +47,19 @@ export async function monthInsights(now = new Date()): Promise<{ savingsRate: nu
 		.orderBy(desc(transactions.amount))
 		.limit(30);
 	if (recent.length) {
-		const baseline = await db
-			.select({ category: transactions.category, amount: transactions.amount })
+		// Mean and deviation per category computed by SQLite: no thousands of rows copied into JavaScript
+		const mean = sql<number>`avg(${transactions.amount})`;
+		const stats = await db
+			.select({
+				category: transactions.category,
+				n: sql<number>`count(*)`,
+				mean,
+				sd: sql<number>`sqrt(max(avg(${transactions.amount} * ${transactions.amount}) - avg(${transactions.amount}) * avg(${transactions.amount}), 0))`
+			})
 			.from(transactions)
 			.where(and(notTransfer, sql`${transactions.type} = 'expense'`, gte(transactions.date, yearAgo), lt(transactions.date, recentFrom)))
-			.limit(20000);
-		items.push(...largeExpenses(recent, baseline));
+			.groupBy(transactions.category);
+		items.push(...largeExpenses(recent, stats));
 	}
 
 	return { savingsRate: current ? savingsRate(cur.income, cur.expense) : null, items };

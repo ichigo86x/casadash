@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { detectSubscriptions, type HistoryRow } from '../src/lib/subscriptions';
-import { categoryAnomalies, largeExpenses, savingInsights, savingsRate } from '../src/lib/insights';
+import { categoryAnomalies, categoryStats, largeExpenses, savingInsights, savingsRate } from '../src/lib/insights';
 import { parseReceiptText } from '../src/lib/receiptParse';
 
 const row = (description: string, amount: number, date: string, extra: Partial<HistoryRow> = {}): HistoryRow => ({
@@ -56,8 +56,8 @@ describe('insights', () => {
 	it('flags an outlier expense only with enough history', () => {
 		const baseline = Array.from({ length: 20 }, (_, i) => ({ category: 'Shopping', amount: 40 + (i % 5) }));
 		const recent = [{ description: 'TV', amount: 900, date: '2026-11-02', category: 'Shopping' }];
-		expect(largeExpenses(recent, baseline)).toHaveLength(1);
-		expect(largeExpenses(recent, baseline.slice(0, 3))).toHaveLength(0);
+		expect(largeExpenses(recent, categoryStats(baseline))).toHaveLength(1);
+		expect(largeExpenses(recent, categoryStats(baseline.slice(0, 3)))).toHaveLength(0);
 	});
 });
 

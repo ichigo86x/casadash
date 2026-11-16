@@ -68,17 +68,27 @@ export function categoryAnomalies(current: CategoryMonth[], history: CategoryMon
 export type RecentExpense = { description: string; amount: number; date: string; category: string };
 
 /** Single expenses far above what is usual for their category (mean + 3 standard deviations, at least 50 euro). */
-export function largeExpenses(recent: RecentExpense[], baseline: { category: string; amount: number }[]): Insight[] {
+export type CategoryStats = { category: string; n: number; mean: number; sd: number };
+
+/** Mean and standard deviation per category from raw amounts (the server computes them in SQL instead). */
+export function categoryStats(baseline: { category: string; amount: number }[]): CategoryStats[] {
 	const byCat = new Map<string, number[]>();
 	for (const b of baseline) (byCat.get(b.category) ?? byCat.set(b.category, []).get(b.category)!).push(b.amount);
+	return [...byCat].map(([category, v]) => {
+		const m = mean(v);
+		return { category, n: v.length, mean: m, sd: Math.sqrt(mean(v.map((x) => (x - m) ** 2))) };
+	});
+}
+
+export function largeExpenses(recent: RecentExpense[], stats: CategoryStats[]): Insight[] {
+	const byCat = new Map(stats.map((s) => [s.category, s]));
 
 	const out: (Insight & { amount: number })[] = [];
 	for (const r of recent) {
-		const sample = byCat.get(r.category) || [];
-		if (sample.length < 8 || r.amount < 50) continue;
-		const m = mean(sample);
-		const sd = Math.sqrt(mean(sample.map((x) => (x - m) ** 2)));
-		if (r.amount > m + 3 * sd && r.amount > m * 2) {
+		const s = byCat.get(r.category);
+		if (!s || s.n < 8 || r.amount < 50) continue;
+		const m = s.mean;
+		if (r.amount > m + 3 * s.sd && r.amount > m * 2) {
 			out.push({ kind: 'large', level: 'info', amount: r.amount, text: `Spesa insolita: «${r.description}» ${eur(r.amount)} (${r.category}), contro una spesa tipica di ${eur(m)}.` });
 		}
 	}

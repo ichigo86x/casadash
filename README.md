@@ -144,6 +144,7 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 - I movimenti ricevono il tag del conto scelto e il tag `Importato`, e si ritrovano con la ricerca.
 - La mappatura delle colonne viene ricordata per formato di file (impostazione `import_profiles`).
 - **Importazioni recenti** con file, conto, utente e numero di movimenti, e **Annulla** per eliminare in un colpo tutti i movimenti di un'importazione.
+  - **Modifica** per correggere un'importazione già fatta (tag, conto, categoria, metodo di pagamento) e **Vedi** per aprirne i movimenti nella lista.
 
 ### Obiettivi di risparmio (`/goals`)
 - Obiettivi con nome, importo da raggiungere, scadenza facoltativa, colore e icona.
