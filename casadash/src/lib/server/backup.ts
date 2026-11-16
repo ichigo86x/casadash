@@ -5,6 +5,7 @@ import AdmZip from 'adm-zip';
 import { client } from '$lib/server/db';
 import { BACKUP_DIR, DATABASE_PATH, UPLOADS_DIR } from '$lib/server/config';
 import { getSetting, setSetting } from '$lib/server/settings';
+import { KEY_FILE } from '$lib/server/secrets';
 import { localDateString } from '$lib/dates';
 
 export type BackupSchedule = {
@@ -28,6 +29,8 @@ export async function buildBackupZip(): Promise<Buffer> {
 		const zip = new AdmZip();
 		zip.addLocalFile(snapshot, 'database', path.basename(DATABASE_PATH));
 		if (fs.existsSync(UPLOADS_DIR)) zip.addLocalFolder(UPLOADS_DIR, 'uploads');
+		// The key that decrypts MFA secrets travels with the data (it is absent when CASADASH_SECRET_KEY is used)
+		if (fs.existsSync(KEY_FILE)) zip.addLocalFile(KEY_FILE, 'keys');
 		return zip.toBuffer();
 	} finally {
 		fs.rmSync(snapshot, { force: true });
@@ -54,19 +57,21 @@ export function backupFilePath(name: string): string | null {
 }
 
 /** Writes a backup into BACKUP_DIR and removes the oldest automatic ones beyond `keep`. */
-export async function saveBackup(keep: number): Promise<string> {
+export async function saveBackup(keep: number, prefix: 'CasaDash_Auto' | 'CasaDash_Backup' = 'CasaDash_Auto'): Promise<string> {
 	fs.mkdirSync(BACKUP_DIR, { recursive: true });
 	const now = new Date();
 	const stamp = `${localDateString(now)}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
-	const name = `CasaDash_Auto_${stamp}.zip`;
+	const name = `${prefix}_${stamp}.zip`;
 	const tmp = path.join(BACKUP_DIR, `${name}.tmp`);
 	fs.writeFileSync(tmp, await buildBackupZip());
 	fs.renameSync(tmp, path.join(BACKUP_DIR, name));
 	await setSetting('backup_last', now.toISOString());
 
-	const autos = listBackups().filter((b) => b.name.startsWith('CasaDash_Auto_'));
-	for (const old of autos.slice(Math.max(1, keep))) {
-		fs.rmSync(path.join(BACKUP_DIR, old.name), { force: true });
+	if (prefix === 'CasaDash_Auto') {
+		const autos = listBackups().filter((b) => b.name.startsWith('CasaDash_Auto_'));
+		for (const old of autos.slice(Math.max(1, keep))) {
+			fs.rmSync(path.join(BACKUP_DIR, old.name), { force: true });
+		}
 	}
 	return name;
 }

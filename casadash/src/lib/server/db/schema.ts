@@ -10,6 +10,10 @@ export const users = sqliteTable('users', {
 	role: text('role').$type<'admin' | 'member'>().default('member').notNull(),
 	// Home Assistant user linked for automatic sign-in through Ingress
 	haUserId: text('ha_user_id'),
+	// Last TOTP time step accepted, so a code cannot be replayed
+	totpLastStep: integer('totp_last_step'),
+	// JSON array of SHA-256 hashes of the unused MFA recovery codes
+	recoveryCodes: text('recovery_codes'),
 	createdAt: text('created_at').notNull()
 });
 
@@ -18,7 +22,10 @@ export const sessions = sqliteTable('sessions', {
 	userId: integer('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
 	kind: text('kind').$type<'session' | 'mfa'>().notNull(),
 	createdAt: integer('created_at').notNull(),
-	expiresAt: integer('expires_at').notNull()
+	expiresAt: integer('expires_at').notNull(),
+	userAgent: text('user_agent'),
+	ip: text('ip'),
+	lastSeen: integer('last_seen')
 });
 
 export const transactions = sqliteTable('transactions', {
@@ -35,6 +42,12 @@ export const transactions = sqliteTable('transactions', {
 	settled: integer('settled').default(0).notNull(),
 	// Groups the rows of one bank import, so the import can be undone
 	importBatch: text('import_batch'),
+	// Foreign currency originally paid (amount is always stored in euro)
+	origAmount: real('orig_amount'),
+	origCurrency: text('orig_currency'),
+	fxRate: real('fx_rate'),
+	// Id given by the bank (Open Banking), to avoid importing a movement twice
+	externalId: text('external_id'),
 	createdAt: text('created_at').default('CURRENT_TIMESTAMP')
 }, (table) => ({
 	dateIdx: index('date_idx').on(table.date),
@@ -117,5 +130,75 @@ export const rules = sqliteTable('rules', {
 	markTransfer: integer('mark_transfer').default(0).notNull(),
 	priority: integer('priority').default(0).notNull(),
 	isActive: integer('is_active').default(1).notNull(),
+	createdBy: integer('created_by').references(() => users.id)
+});
+
+// --- Security ---
+
+// Persistent brute-force counters (survive restarts)
+export const loginFailures = sqliteTable('login_failures', {
+	key: text('key').primaryKey(),
+	count: integer('count').notNull(),
+	until: integer('until').notNull()
+});
+
+export const auditLog = sqliteTable('audit_log', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	at: text('at').notNull(),
+	userId: integer('user_id'),
+	username: text('username'),
+	action: text('action').notNull(),
+	detail: text('detail'),
+	ip: text('ip')
+});
+
+// --- Net worth ---
+
+export const assets = sqliteTable('assets', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	name: text('name').notNull(),
+	kind: text('kind').$type<'asset' | 'liability'>().default('asset').notNull(),
+	category: text('category').default('Altro').notNull(),
+	value: real('value').default(0).notNull(),
+	note: text('note'),
+	updatedAt: text('updated_at').notNull(),
+	createdBy: integer('created_by').references(() => users.id)
+});
+
+export const assetHistory = sqliteTable('asset_history', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	assetId: integer('asset_id').references(() => assets.id, { onDelete: 'cascade' }).notNull(),
+	date: text('date').notNull(),
+	value: real('value').notNull()
+});
+
+// --- Deadlines with reminders (stamp duty, insurance, taxes...) ---
+
+export const deadlines = sqliteTable('deadlines', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	title: text('title').notNull(),
+	dueDate: text('due_date').notNull(),
+	amount: real('amount').default(0).notNull(),
+	kind: text('kind').default('Altro').notNull(),
+	category: text('category'),
+	repeat: text('repeat').$type<'none' | 'monthly' | 'yearly'>().default('none').notNull(),
+	remindDays: integer('remind_days').default(14).notNull(),
+	done: integer('done').default(0).notNull(),
+	createdBy: integer('created_by').references(() => users.id)
+});
+
+// --- Open Banking ---
+
+export const bankConnections = sqliteTable('bank_connections', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	provider: text('provider').notNull(),
+	institutionId: text('institution_id').notNull(),
+	institutionName: text('institution_name').notNull(),
+	requisitionId: text('requisition_id').notNull(),
+	accountId: text('account_id'),
+	accountTag: text('account_tag'),
+	status: text('status').default('pending').notNull(),
+	lastSync: text('last_sync'),
+	lastError: text('last_error'),
 	createdBy: integer('created_by').references(() => users.id)
 });

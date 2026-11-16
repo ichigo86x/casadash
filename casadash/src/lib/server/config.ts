@@ -19,9 +19,20 @@ export const RESTART_EXIT_CODE = 75;
  * request reached us over HTTPS, so plain-HTTP LAN access keeps working.
  * "true"/"false" force the flag.
  */
-export function cookieSecure(url: URL, headers: Headers): boolean {
+export function cookieSecure(_url: URL, headers: Headers): boolean {
 	const mode = (env.COOKIE_SECURE || 'auto').toLowerCase();
 	if (mode === 'true') return true;
 	if (mode === 'false') return false;
-	return url.protocol === 'https:' || headers.get('x-forwarded-proto') === 'https';
+	return requestIsHttps(headers);
+}
+
+/**
+ * Whether the browser reached us over HTTPS. The Node server itself only speaks plain HTTP, and adapter-node
+ * reports every request as "https" when ORIGIN is not set, so event.url.protocol cannot be trusted here:
+ * the answer comes from the proxy's X-Forwarded-Proto, or from ORIGIN.
+ */
+export function requestIsHttps(headers: Headers): boolean {
+	const forwarded = headers.get('x-forwarded-proto')?.split(',')[0].trim().toLowerCase();
+	if (forwarded) return forwarded === 'https';
+	return (env.ORIGIN || '').toLowerCase().startsWith('https:');
 }

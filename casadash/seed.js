@@ -198,6 +198,89 @@ try {
 	console.error("Migration check failed:", e);
 }
 
+// --- Security hardening, net worth, deadlines, bank sync (added in 1.6.0) ---
+db.exec(`
+    CREATE TABLE IF NOT EXISTS login_failures (
+        key TEXT PRIMARY KEY,
+        count INTEGER NOT NULL,
+        until INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        at TEXT NOT NULL,
+        user_id INTEGER,
+        username TEXT,
+        action TEXT NOT NULL,
+        detail TEXT,
+        ip TEXT
+    );
+    CREATE INDEX IF NOT EXISTS audit_log_at_idx ON audit_log(at);
+
+    CREATE TABLE IF NOT EXISTS assets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'asset',
+        category TEXT NOT NULL DEFAULT 'Altro',
+        value REAL NOT NULL DEFAULT 0,
+        note TEXT,
+        updated_at TEXT NOT NULL,
+        created_by INTEGER REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS asset_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        date TEXT NOT NULL,
+        value REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS asset_history_asset_idx ON asset_history(asset_id, date);
+
+    CREATE TABLE IF NOT EXISTS deadlines (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        due_date TEXT NOT NULL,
+        amount REAL NOT NULL DEFAULT 0,
+        kind TEXT NOT NULL DEFAULT 'Altro',
+        category TEXT,
+        repeat TEXT NOT NULL DEFAULT 'none',
+        remind_days INTEGER NOT NULL DEFAULT 14,
+        done INTEGER NOT NULL DEFAULT 0,
+        created_by INTEGER REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS bank_connections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        provider TEXT NOT NULL,
+        institution_id TEXT NOT NULL,
+        institution_name TEXT NOT NULL,
+        requisition_id TEXT NOT NULL,
+        account_id TEXT,
+        account_tag TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        last_sync TEXT,
+        last_error TEXT,
+        created_by INTEGER REFERENCES users(id)
+    );
+`);
+
+function addColumn(table, column, ddl) {
+    const cols = db.prepare(`PRAGMA table_info('${table}');`).all();
+    if (!cols.some((c) => c.name === column)) {
+        console.log(`Applying structural update: ADD COLUMN ${column} TO ${table}`);
+        db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl};`).run();
+    }
+}
+addColumn('users', 'totp_last_step', 'INTEGER');
+addColumn('users', 'recovery_codes', 'TEXT');
+addColumn('sessions', 'user_agent', 'TEXT');
+addColumn('sessions', 'ip', 'TEXT');
+addColumn('sessions', 'last_seen', 'INTEGER');
+addColumn('transactions', 'orig_amount', 'REAL');
+addColumn('transactions', 'orig_currency', 'TEXT');
+addColumn('transactions', 'fx_rate', 'REAL');
+addColumn('transactions', 'external_id', 'TEXT');
+db.prepare('CREATE INDEX IF NOT EXISTS transactions_external_idx ON transactions(external_id);').run();
 console.log("Checking for default admin user...");
 const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
 

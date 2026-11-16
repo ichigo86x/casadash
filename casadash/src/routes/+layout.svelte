@@ -70,6 +70,12 @@
             <a href="{base}/settings/recurring" class="nav-link {routeId.startsWith('/settings/recurring') ? 'active' : ''}">
                 <i class="fas fa-sync-alt"></i> <span>Ricorrenti</span>
             </a>
+            <a href="{base}/deadlines" class="nav-link {routeId.startsWith('/deadlines') ? 'active' : ''}">
+                <i class="fas fa-calendar-check"></i> <span>Scadenze</span>
+            </a>
+            <a href="{base}/wealth" class="nav-link {routeId.startsWith('/wealth') ? 'active' : ''}">
+                <i class="fas fa-landmark"></i> <span>Patrimonio</span>
+            </a>
             <a href="{base}/settings/users" class="nav-link {routeId.startsWith('/settings/users') ? 'active' : ''}">
                 <i class="fas fa-users"></i> <span>Famiglia</span>
             </a>
@@ -79,6 +85,12 @@
             {#if data.user?.role === 'admin'}
             <a href="{base}/settings/backup" class="nav-link {routeId.startsWith('/settings/backup') ? 'active' : ''}">
                 <i class="fas fa-archive"></i> <span>Dati</span>
+            </a>
+            <a href="{base}/settings/bank" class="nav-link {routeId.startsWith('/settings/bank') ? 'active' : ''}">
+                <i class="fas fa-university"></i> <span>Banche</span>
+            </a>
+            <a href="{base}/settings/audit" class="nav-link {routeId.startsWith('/settings/audit') ? 'active' : ''}">
+                <i class="fas fa-clipboard-list"></i> <span>Registro</span>
             </a>
             {/if}
         </div>

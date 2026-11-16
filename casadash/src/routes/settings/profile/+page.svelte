@@ -68,7 +68,7 @@
 
                 <div class="form-group">
                     <label for="new_password">Nuova Password</label>
-                    <input type="password" id="new_password" name="new_password" required minlength="6" placeholder="Minimo 6 caratteri">
+                    <input type="password" id="new_password" name="new_password" required minlength="10" autocomplete="new-password" placeholder="Minimo 10 caratteri">
                 </div>
                 <div class="form-group">
                     <label for="confirm_password">Conferma Nuova Password</label>
@@ -81,6 +81,39 @@
             </form>
         </div>
 
+    </div>
+
+    <!-- Active sign-ins -->
+    <div class="form-section" style="margin-top:30px;">
+        <h2><i class="fas fa-laptop"></i> Accessi attivi</h2>
+        {#if form?.sessionsSaved}<p style="color:var(--accent-green);"><i class="fas fa-check"></i> Sessioni aggiornate.</p>{/if}
+        <div class="table-responsive">
+            <table class="table">
+                <thead><tr><th>Dispositivo</th><th>Indirizzo</th><th>Ultimo uso</th><th></th></tr></thead>
+                <tbody>
+                    {#each data.sessions as s}
+                        <tr>
+                            <td>{s.userAgent ? s.userAgent.slice(0, 70) : 'Sconosciuto'}{#if s.current} <strong style="color:var(--accent-green);">(questo)</strong>{/if}</td>
+                            <td>{s.ip || '-'}</td>
+                            <td>{new Date(s.lastSeen).toLocaleString('it-IT')}</td>
+                            <td>
+                                {#if !s.current}
+                                    <form method="POST" action="?/revokeSession" use:enhance class="inline">
+                                        <input type="hidden" name="handle" value={s.handle}>
+                                        <button class="delete-btn" title="Disconnetti"><i class="fas fa-sign-out-alt"></i></button>
+                                    </form>
+                                {/if}
+                            </td>
+                        </tr>
+                    {/each}
+                </tbody>
+            </table>
+        </div>
+        {#if data.sessions.length > 1}
+            <form method="POST" action="?/revokeOthers" use:enhance style="margin-top:12px;">
+                <button class="btn-submit btn-auto btn-secondary"><i class="fas fa-power-off"></i> Disconnetti tutti gli altri dispositivi</button>
+            </form>
+        {/if}
     </div>
 
     <!-- Automatic sign-in from the Home Assistant sidebar -->

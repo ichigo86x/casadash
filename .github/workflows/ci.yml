@@ -1,0 +1,33 @@
+name: CI
+
+# Type-check, unit tests, build and dependency audit on every push and pull request.
+# The publish workflow reuses this one, so an image is never built from a broken commit.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: casadash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: casadash/package-lock.json
+      - run: npm ci
+      - run: npm run check -- --threshold error
+      - run: npm test
+      - run: npm run build
+      # Fails only on high/critical issues in packages that ship in the image
+      - run: npm audit --omit=dev --audit-level=high

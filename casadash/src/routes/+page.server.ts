@@ -5,11 +5,16 @@ import { desc, eq, and, sql, gte, lte, like, inArray, type SQL } from 'drizzle-o
 import { fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { InvalidReceiptError, saveReceipt } from '$lib/server/receipts';
+import { validateTransaction, isValidDate } from '$lib/validate';
+import { restoreBatch, trashRows } from '$lib/server/trash';
+import { audit } from '$lib/server/audit';
+import { monthInsights } from '$lib/server/insights';
+import { dueSoon } from '$lib/server/deadlines';
 import { hasTag, isTransfer, notTransfer } from '$lib/server/transfers';
 import { getSetting } from '$lib/server/settings';
 import { loadActiveRules } from '$lib/server/rules';
 import { upcomingRecurring } from '$lib/server/wealth';
-import { accountBalances, creditCardUnsettled, expenseSum, incomeSum, monthOverview } from '$lib/server/stats';
+import { accountBalances, creditCardUnsettled, expenseSum, financialPosition, incomeSum, monthOverview } from '$lib/server/stats';
 
 const PAGE_SIZES = [10, 15, 25, 50, 100];
 
@@ -47,7 +52,12 @@ export const load: PageServerLoad = async ({ url }) => {
 	const monthPrefix = today.slice(0, 8); // "YYYY-MM-"
 
 	// 1. Totals (all time, current year, current month)
-	const [totals] = await db.select({ income: incomeSum, expense: expenseSum }).from(transactions).where(notTransfer);
+	// The three summary cards follow the chosen period (default: this month); charts below keep their own ranges
+	const period = ['all', 'year', 'month'].includes(url.searchParams.get('p') || '') ? (url.searchParams.get('p') as 'all' | 'year' | 'month') : 'month';
+	const periodFilter = period === 'month' ? and(notTransfer, like(transactions.date, `${monthPrefix}%`))
+		: period === 'year' ? and(notTransfer, like(transactions.date, `${yearPrefix}%`))
+		: notTransfer;
+	const [totals] = await db.select({ income: incomeSum, expense: expenseSum }).from(transactions).where(periodFilter);
 	const [yearTotals] = await db.select({ expense: expenseSum }).from(transactions)
 		.where(and(notTransfer, like(transactions.date, `${yearPrefix}%`)));
 	const month = await monthOverview(now);
@@ -92,6 +102,8 @@ export const load: PageServerLoad = async ({ url }) => {
 	// 6. Account balances from the account tags
 	const accountTags = await getSetting<string[]>('account_tags', []);
 	const accounts = await accountBalances(accountTags);
+	const upcoming = await upcomingRecurring(accountTags);
+	const position = await financialPosition(accountTags, accounts, upcoming, now);
 
 	// 7. Paginated, filtered transaction list
 	const f = listFilters(url);
@@ -131,10 +143,11 @@ export const load: PageServerLoad = async ({ url }) => {
 	return {
 		currentYear,
 		currentMonth,
+		period,
 		summary: {
 			totalIncome: totals.income,
 			totalExpenses: totals.expense,
-			balance: totals.income - totals.expense,
+			balance: Math.round((totals.income - totals.expense) * 100) / 100,
 			monthIncome: month.income,
 			monthExpenses: month.expense,
 			yearExpenses: yearTotals.expense
@@ -158,6 +171,9 @@ export const load: PageServerLoad = async ({ url }) => {
 		transactionCount,
 		list: { ...f, page, totalPages, total: filteredCount },
 		accounts,
+		position,
+		insights: await monthInsights(now),
+		deadlines: await dueSoon(today),
 		allCategories: dbCategories,
 		incomeCategories: dbCategories.filter((c) => c.type === 'income'),
 		expenseCategories: dbCategories.filter((c) => c.type === 'expense'),
@@ -169,32 +185,17 @@ export const load: PageServerLoad = async ({ url }) => {
 		lastSettledDate: lastSettled?.date || null,
 		allUsers: dbUsers,
 		rules: await loadActiveRules(),
-		upcoming: await upcomingRecurring(accountTags)
+		upcoming
 	};
 };
 
 export const actions: Actions = {
 	addTransaction: async ({ request, locals }) => {
-		const data = await request.formData();
-		const type = data.get('type')?.toString();
-		const description = data.get('description')?.toString();
-        const amountStr = data.get('amount')?.toString();
-        const date = data.get('date')?.toString();
-        const category = data.get('category')?.toString() || 'Altro';
-        const paymentMethod = data.get('payment_method')?.toString() || 'bancomat';
-        const tags = data.get('tags')?.toString() || '[]';
-        const settled = paymentMethod === 'credit_card' ? (data.get('settled') === '1' ? 1 : 0) : 1;
-
 		if (!locals.user) return fail(401, { error: 'Non autorizzato' });
-
-        if (!type || !description || !amountStr || !date) {
-            return fail(400, { error: 'Compila tutti i campi obbligatori' });
-        }
-
-        const amount = parseFloat(amountStr);
-        if (isNaN(amount) || amount <= 0) {
-            return fail(400, { error: 'Importo non valido' });
-        }
+		const data = await request.formData();
+		const parsed = validateTransaction(data, await db.select({ name: categories.name, type: categories.type }).from(categories));
+		if ('error' in parsed) return fail(400, { error: parsed.error });
+		const v = parsed.value;
 
 		let receiptPath = null;
 		const receipt = data.get('receipt') as File | null;
@@ -208,85 +209,104 @@ export const actions: Actions = {
 		}
 
 		try {
-            await db.insert(transactions).values({
-                type,
-                description,
-                amount,
-                date,
-                category,
-                paymentMethod,
-                tags,
-                receiptPath,
-                settled,
-                createdBy: locals.user.id
-            });
-            return { success: true };
+			await db.insert(transactions).values({
+				type: v.type,
+				description: v.description,
+				amount: v.amount,
+				date: v.date,
+				category: v.category,
+				paymentMethod: v.paymentMethod,
+				tags: JSON.stringify(v.tags),
+				receiptPath,
+				settled: v.settled,
+				origAmount: v.origAmount,
+				origCurrency: v.origCurrency,
+				fxRate: v.fxRate,
+				createdBy: locals.user.id
+			});
+			return { success: true };
 		} catch (error) {
 			return fail(500, { error: 'Errore salvataggio' });
 		}
 	},
-    editTransaction: async ({ request, locals }) => {
-        if (!locals.user) return fail(401, { error: 'Non autorizzato' });
-        
-        const data = await request.formData();
-        const id = parseInt(data.get('id')?.toString() || '0');
-        const type = data.get('type')?.toString();
-        const description = data.get('description')?.toString();
-        const amountStr = data.get('amount')?.toString();
-        const date = data.get('date')?.toString();
-        const category = data.get('category')?.toString() || 'Altro';
-        const paymentMethod = data.get('payment_method')?.toString() || 'bancomat';
-        const tags = data.get('tags')?.toString() || '[]';
-        const settled = paymentMethod === 'credit_card' ? (data.get('settled') === '1' ? 1 : 0) : 1;
+	editTransaction: async ({ request, locals }) => {
+		if (!locals.user) return fail(401, { error: 'Non autorizzato' });
 
-        if (!id || !type || !description || !amountStr || !date) {
-            return fail(400, { error: 'Compila tutti i campi obbligatori' });
-        }
+		const data = await request.formData();
+		const id = parseInt(data.get('id')?.toString() || '0');
+		if (!id) return fail(400, { error: 'Movimento non valido' });
+		const parsed = validateTransaction(data, await db.select({ name: categories.name, type: categories.type }).from(categories));
+		if ('error' in parsed) return fail(400, { error: parsed.error });
+		const v = parsed.value;
 
-        const amount = parseFloat(amountStr);
-        if (isNaN(amount) || amount <= 0) return fail(400, { error: 'Importo non valido' });
+		const [existing] = await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.id, id)).limit(1);
+		if (!existing) return fail(404, { error: 'Movimento non trovato' });
 
-        let receiptPath: string | null | undefined = undefined;
-        const receipt = data.get('receipt') as File | null;
-        const deleteReceipt = data.get('delete_receipt') === 'true';
+		let receiptPath: string | null | undefined = undefined;
+		const receipt = data.get('receipt') as File | null;
+		const deleteReceipt = data.get('delete_receipt') === 'true';
 
-        if (receipt && receipt.size > 0 && receipt.name && receipt.name !== 'undefined') {
+		if (receipt && receipt.size > 0 && receipt.name && receipt.name !== 'undefined') {
 			try {
 				receiptPath = await saveReceipt(receipt);
 			} catch (e) {
 				if (e instanceof InvalidReceiptError) return fail(400, { error: e.message });
 				throw e;
 			}
-        } else if (deleteReceipt) {
-            // Explicit null -> clears the column
-            receiptPath = null;
-        }
+		} else if (deleteReceipt) {
+			// Explicit null -> clears the column
+			receiptPath = null;
+		}
 
-        try {
-            const updateData: any = { type, description, amount, date, category, paymentMethod, tags, settled };
-            // Only touch receiptPath if we have a new upload OR an explicit delete
-            if (receiptPath !== undefined) updateData.receiptPath = receiptPath;
+		try {
+			const updateData: Partial<typeof transactions.$inferInsert> = {
+				type: v.type,
+				description: v.description,
+				amount: v.amount,
+				date: v.date,
+				category: v.category,
+				paymentMethod: v.paymentMethod,
+				tags: JSON.stringify(v.tags),
+				settled: v.settled,
+				origAmount: v.origAmount,
+				origCurrency: v.origCurrency,
+				fxRate: v.fxRate
+			};
+			// Only touch receiptPath if we have a new upload OR an explicit delete
+			if (receiptPath !== undefined) updateData.receiptPath = receiptPath;
 
-            await db.update(transactions).set(updateData).where(eq(transactions.id, id));
-            return { success: true };
-        } catch (error) {
-            return fail(500, { error: 'Errore durante la modifica' });
-        }
-    },
-	deleteTransaction: async ({ request, locals }) => {
+			await db.update(transactions).set(updateData).where(eq(transactions.id, id));
+			return { success: true };
+		} catch (error) {
+			return fail(500, { error: 'Errore durante la modifica' });
+		}
+	},
+	// Deleting keeps a copy for 30 days: the page offers "Annulla"
+	deleteTransaction: async ({ request, locals, getClientAddress }) => {
 		if (!locals.user) return fail(401, { error: 'Non autorizzato' });
 		const data = await request.formData();
 		const id = parseInt(data.get('id')?.toString() || '0');
 		if (!id) return fail(400, { error: 'ID errato' });
+		const rows = await db.select().from(transactions).where(eq(transactions.id, id));
+		const batch = await trashRows(rows);
 		await db.delete(transactions).where(eq(transactions.id, id));
-		return { success: true };
+		if (rows[0]) await audit(locals.user, 'transaction.deleted', `${rows[0].description} ${rows[0].amount}`, getClientAddress());
+		return { success: true, deleted: batch, bulk: rows.length ? 'Movimento eliminato' : undefined };
+	},
+	restoreDeleted: async ({ request, locals, getClientAddress }) => {
+		if (!locals.user) return fail(401, { error: 'Non autorizzato' });
+		const batch = (await request.formData()).get('batch')?.toString() || '';
+		const n = await restoreBatch(batch);
+		if (!n) return fail(404, { error: 'Nulla da ripristinare (già ripristinato o scaduto)' });
+		await audit(locals.user, 'transaction.restored', `${n} movimenti`, getClientAddress());
+		return { bulk: n === 1 ? 'Movimento ripristinato' : `${n} movimenti ripristinati` };
 	},
 	// Bulk changes from the list selection: category, add/remove a tag, delete
-	bulkEdit: async ({ request, locals }) => {
+	bulkEdit: async ({ request, locals, getClientAddress }) => {
 		if (!locals.user) return fail(401, { error: 'Non autorizzato' });
 		const data = await request.formData();
 		const op = data.get('op')?.toString();
-		const value = data.get('value')?.toString().trim() || '';
+		const value = data.get('value')?.toString().trim().slice(0, 40) || '';
 		let ids: number[] = [];
 		try {
 			ids = (JSON.parse(data.get('ids')?.toString() || '[]') as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0);
@@ -297,8 +317,10 @@ export const actions: Actions = {
 		const rows = await db.select().from(transactions).where(inArray(transactions.id, ids));
 
 		if (op === 'delete') {
+			const batch = await trashRows(rows);
 			await db.delete(transactions).where(inArray(transactions.id, ids));
-			return { bulk: `${rows.length} movimenti eliminati` };
+			await audit(locals.user, 'transaction.bulk_deleted', `${rows.length} movimenti`, getClientAddress());
+			return { bulk: `${rows.length} movimenti eliminati`, deleted: batch };
 		}
 		if (op === 'category') {
 			const [cat] = await db.select().from(categories).where(eq(categories.name, value)).limit(1);
@@ -350,6 +372,7 @@ export const actions: Actions = {
 		const fromDate = data.get('from_date')?.toString();
 		const toDate = data.get('to_date')?.toString();
 		if (!fromDate || !toDate) return fail(400, { error: 'Date di inizio e fine richieste' });
+		if (!isValidDate(fromDate) || !isValidDate(toDate)) return fail(400, { error: 'Date non valide' });
 
 		try {
 			await db.update(transactions)

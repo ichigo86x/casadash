@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.6.0
+
+### Nuove funzionalità
+- **Finanze attuali** nella dashboard: liquidità sui conti, carta di credito da saldare, **disponibile oggi**, quota accantonata negli obiettivi, stima a fine mese con i ricorrenti ancora in arrivo, e patrimonio netto se hai registrato beni e debiti. Nuovo sensore `sensor.casadash_disponibile`.
+- **Patrimonio netto** (menu *Patrimonio*): beni, investimenti, mutui e prestiti accanto ai conti, con storico e grafico degli ultimi 24 mesi.
+- **Scadenze** (menu *Scadenze*): bollo, assicurazioni, tasse con importo, ripetizione e promemoria. Compaiono nella dashboard quando manca poco; "Pagata" può registrare la spesa e spostare la scadenza al ciclo successivo. Sensore `sensor.casadash_scadenze_imminenti`.
+- **Abbonamenti rilevati** (pagina *Ricorrenti*): dallo storico propone le spese che si ripetono con stessa cadenza e importo, con un clic per automatizzarle.
+- **Consigli e anomalie** nella dashboard: tasso di risparmio, categorie sopra la media, spese singole insolite. Sensore `sensor.casadash_tasso_risparmio`.
+- **Valuta estera** nel form dei movimenti: importo in valuta, cambio (con pulsante per il cambio BCE del giorno) e conversione in euro; l'originale resta visibile in modifica.
+- **Lettura degli scontrini** (OCR) nel browser: totale, data ed esercente precompilano il form. Il motore gira localmente, nessuna foto esce dal dispositivo.
+- **Collegamento bancario** (menu *Banche*, solo amministratori): sincronizzazione dei movimenti via Open Banking (GoCardless Bank Account Data), con regole automatiche e senza doppioni.
+- **Annulla eliminazione**: i movimenti eliminati si possono ripristinare per 30 giorni.
+- **Riepilogo per periodo**: le tre carte in alto seguono *Questo mese*, *Quest'anno* o *Tutto*.
+
+### Sicurezza
+- **CSRF:** controllo di `Sec-Fetch-Site` e `Origin`; protegge anche da altre applicazioni sullo stesso host. Con un proxy che cambia l'indirizzo si imposta `TRUSTED_ORIGINS`.
+- **Intestazioni di sicurezza:** Content-Security-Policy, `frame-ancestors`, `Referrer-Policy`, `Permissions-Policy`, HSTS su HTTPS.
+- **MFA:** segreti cifrati (AES-256-GCM), codici di recupero, codice non riutilizzabile, disattivazione solo con password e codice. L'amministratore può disattivare la MFA di un utente.
+- **Password:** minimo 10 caratteri, elenco di password comuni rifiutate, hash bcrypt costo 12 asincrono. L'amministratore può **reimpostare** la password di un utente (password temporanea mostrata una volta).
+- **Sessioni:** elenco dei dispositivi collegati in *Profilo* con disconnessione singola o di tutti gli altri.
+- **Blocco dei tentativi** salvato nel database (resiste ai riavvii), per client e account, per solo account e per solo client. Tempo di risposta identico per utenti inesistenti.
+- **Registro attività** (menu *Registro*, solo amministratori): accessi, cambi password e MFA, utenti, eliminazioni, ripristini.
+- **Validazione dei dati** lato server: tipo, data, importo (niente `Infinity`), categoria, tag, lunghezza.
+- **Ricevute:** il formato è riconosciuto dal contenuto, limite di 15 MB, i file orfani vengono rimossi.
+- **Ripristino backup:** controllo di integrità e della struttura del database, limiti anti zip-bomb, backup automatico dei dati attuali prima di sostituirli.
+- **Docker:** il processo gira come utente non privilegiato, con `HEALTHCHECK`.
+- **Cookie `Secure`:** in modalità `auto` ora dipende da `X-Forwarded-Proto` o da `ORIGIN`. Prima adapter-node dichiarava sempre HTTPS, quindi il cookie era sempre `Secure` anche su HTTP in rete locale.
+- CI (type-check, test, build, `npm audit`) e Dependabot.
+
+### Migliorie
+- Somme arrotondate ai centesimi nelle query, niente residui da virgola mobile.
+- I saldi dei conti non contano i movimenti con data futura.
+
 ## 1.5.1
 - **Carta di credito:** nel riquadro della dashboard c'è il pulsante *Vedi le spese da saldare*. Mostra l'elenco delle spese non ancora addebitate, dalla più vecchia, e permette di selezionarle e segnarle come saldate. Resta disponibile anche il saldo in blocco per date.
 - **Stile uniforme dei form:** tutti i campi hanno lo stesso aspetto del form *Nuova transazione*, compresi quelli di Importa, Regole e Obiettivi, i caricamenti di file, i colori e le caselle di spunta. I pulsanti delle impostazioni sono blu (azione), grigi (secondaria) o rossi (distruttiva). Il rosso e il verde restano per uscite ed entrate.

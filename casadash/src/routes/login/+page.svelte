@@ -28,11 +28,11 @@
 		{#if form?.mfaRequired}
 			<form method="POST" action="?/mfaVerify" use:enhance class="login-form">
 				<p style="text-align:center; color:var(--text-muted); margin-bottom:15px;">
-					Inserisci il codice a 6 cifre dall'app Google Authenticator.
+					Inserisci il codice a 6 cifre dall'app di autenticazione, oppure un codice di recupero.
 				</p>
 				<div class="form-group">
 					<label for="code"><i class="fas fa-shield-alt"></i> Codice MFA</label>
-					<input type="text" inputmode="numeric" id="code" name="code" placeholder="123 456" pattern="[0-9 ]+" maxlength="7" required autocomplete="one-time-code" style="font-size:1.5rem; text-align:center; letter-spacing:8px;">
+					<input type="text" id="code" name="code" placeholder="123 456" maxlength="12" required autocomplete="one-time-code" style="font-size:1.5rem; text-align:center; letter-spacing:4px;">
 				</div>
 				<button type="submit" class="btn-submit">
 					<i class="fas fa-check-circle"></i> Verifica

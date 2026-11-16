@@ -1,7 +1,9 @@
 import crypto from 'crypto';
 import { env } from '$env/dynamic/private';
-import { accountBalances, creditCardUnsettled, monthOverview } from '$lib/server/stats';
+import { accountBalances, creditCardUnsettled, financialPosition, monthOverview } from '$lib/server/stats';
 import { upcomingRecurring } from '$lib/server/wealth';
+import { monthInsights } from '$lib/server/insights';
+import { dueSoon } from '$lib/server/deadlines';
 import { getSetting, setSetting } from '$lib/server/settings';
 import { localDateString } from '$lib/dates';
 
@@ -29,6 +31,9 @@ export async function sensorValues(): Promise<Sensor[]> {
 	const now = new Date();
 	const weekEnd = localDateString(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7));
 	const nextWeek = (await upcomingRecurring(accountTags, 7)).filter((u) => u.date <= weekEnd);
+	const position = await financialPosition(accountTags, accounts, await upcomingRecurring(accountTags, 31), now);
+	const insights = await monthInsights(now);
+	const deadlines = await dueSoon();
 	const budgetPct = month.budget.monthly > 0 ? round((month.expense / month.budget.monthly) * 100) : null;
 
 	const sensors: Sensor[] = [
@@ -43,6 +48,12 @@ export async function sensorValues(): Promise<Sensor[]> {
 			attributes: { movimenti: cc.count } },
 		{ id: 'scadenze_7_giorni', name: 'CasaDash ricorrenti prossimi 7 giorni', state: round(nextWeek.filter((u) => u.type === 'expense').reduce((a, u) => a + u.amount, 0)), unit: 'EUR', icon: 'mdi:calendar-clock',
 			attributes: { elenco: nextWeek.map((u) => ({ data: u.date, descrizione: u.description, importo: u.type === 'expense' ? -u.amount : u.amount })) } },
+		{ id: 'disponibile', name: 'CasaDash disponibile', state: round(position.available), unit: 'EUR', icon: 'mdi:wallet-outline',
+			attributes: { liquidita_conti: round(position.bank), carta_da_saldare: round(position.cardTotal), obiettivi_accantonati: round(position.goalsSaved), libero_da_obiettivi: round(position.free), stima_fine_mese: round(position.endOfMonth) } },
+		{ id: 'tasso_risparmio', name: 'CasaDash tasso di risparmio', state: insights.savingsRate ?? 'unknown', unit: '%', icon: 'mdi:piggy-bank-outline',
+			attributes: { consigli: insights.items.map((i) => i.text) } },
+		{ id: 'scadenze_imminenti', name: 'CasaDash scadenze imminenti', state: deadlines.length, icon: 'mdi:bell-ring-outline',
+			attributes: { totale_importi: round(deadlines.reduce((s, d) => s + d.amount, 0)), elenco: deadlines.map((d) => ({ titolo: d.title, scadenza: d.dueDate, giorni: d.daysLeft, importo: d.amount })) } },
 		...accounts.map((a) => ({ id: `saldo_${slug(a.tag)}`, name: `CasaDash saldo ${a.tag}`, state: round(a.balance), unit: 'EUR', icon: 'mdi:bank', attributes: { conto: a.tag } }))
 	];
 	if (accounts.length > 1) {

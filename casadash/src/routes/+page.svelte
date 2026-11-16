@@ -35,6 +35,8 @@
 	let bulkCategory = $state('');
 	let bulkTag = $state('');
 	let bulkMessage = $state('');
+	// Batch id of the last deletion: lets the user undo it
+	let undoBatch = $state('');
 	let pageIds = $derived(data.transactions.map((t) => t.id));
 	let allOnPageSelected = $derived(pageIds.length > 0 && pageIds.every((id) => selectedIds.includes(id)));
 	function toggleSelected(id: number) {
@@ -44,16 +46,33 @@
 		selectedIds = allOnPageSelected ? selectedIds.filter((id) => !pageIds.includes(id)) : [...new Set([...selectedIds, ...pageIds])];
 	}
 	const bulkEnhance = ({ formData, cancel }: { formData: FormData; cancel: () => void }) => {
-		if (formData.get('op') === 'delete' && !confirm(`Eliminare definitivamente ${selectedIds.length} movimenti?`)) return cancel();
+		if (formData.get('op') === 'delete' && !confirm(`Eliminare ${selectedIds.length} movimenti? Potrai annullare per 30 giorni.`)) return cancel();
 		formData.set('ids', JSON.stringify(selectedIds));
 		return async ({ result, update }: { result: any; update: () => Promise<void> }) => {
 			await update();
 			if (result.type === 'success') {
 				bulkMessage = result.data?.bulk || '';
+				undoBatch = result.data?.deleted || '';
 				selectedIds = [];
 				bulkTag = '';
 			}
 		};
+	};
+
+	const deleteEnhance = ({ cancel }: { cancel: () => void }) => {
+		if (!confirm('Eliminare questo movimento? Potrai annullare per 30 giorni.')) return cancel();
+		return async ({ result, update }: { result: any; update: () => Promise<void> }) => {
+			await update();
+			if (result.type === 'success') {
+				bulkMessage = result.data?.bulk || '';
+				undoBatch = result.data?.deleted || '';
+			}
+		};
+	};
+	const undoEnhance = () => async ({ result, update }: { result: any; update: () => Promise<void> }) => {
+		await update();
+		bulkMessage = result.data?.bulk || result.data?.error || '';
+		undoBatch = '';
 	};
 
 	// Automatic rules: fill category and tags from the description, unless the category was picked by hand
@@ -146,8 +165,71 @@
 		formType = type;
 	}
 
+	// Clears the foreign-currency and receipt-scan state once a movement has been saved
+	function resetExtras() {
+		fxOpen = false; fxAmount = ''; fxRate = ''; fxMessage = '';
+		receiptSource = null; ocrMessage = '';
+	}
+
 	let compressedReceiptBlob: Blob | null = $state(null);
     let receiptFileName: string = $state('');
+	// Original photo, kept at full size for the text recognition (the attachment itself is compressed)
+	let receiptSource: File | null = $state(null);
+	let ocrBusy = $state(false);
+	let ocrProgress = $state(0);
+	let ocrMessage = $state('');
+
+	// Fills description, amount and date from the receipt photo
+	async function readReceipt() {
+		if (!receiptSource) return;
+		ocrBusy = true;
+		ocrProgress = 0;
+		ocrMessage = '';
+		try {
+			const { scanReceipt } = await import('$lib/ocr');
+			const { guess } = await scanReceipt(receiptSource, (p) => (ocrProgress = p));
+			const set = (id: string, value: string) => {
+				const el = document.getElementById(id) as HTMLInputElement | null;
+				if (el) { el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); }
+			};
+			const desc = document.getElementById('description') as HTMLInputElement | null;
+			if (guess.merchant && desc && !desc.value) { set('description', guess.merchant); applyRules(guess.merchant); }
+			if (guess.amount !== null) set('amount', guess.amount.toFixed(2));
+			if (guess.date) set('date', guess.date);
+			ocrMessage = guess.amount !== null || guess.date ? 'Letto: controlla i dati prima di salvare.' : 'Non sono riuscito a leggere lo scontrino: prova con una foto più nitida.';
+		} catch (e) {
+			ocrMessage = 'Lettura non riuscita: ' + (e as Error).message;
+		} finally {
+			ocrBusy = false;
+		}
+	}
+
+	// Foreign currency: amount in euro = foreign amount / rate (1 EUR = rate units)
+	let fxOpen = $state(false);
+	let fxCurrency = $state('USD');
+	let fxAmount = $state('');
+	let fxRate = $state('');
+	let fxMessage = $state('');
+	const fxCurrencies = ['USD', 'GBP', 'CHF', 'JPY', 'CAD', 'AUD', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'BGN', 'TRY', 'CNY', 'INR', 'BRL', 'MXN', 'AED'];
+	function applyFx() {
+		const a = parseFloat(fxAmount.replace(',', '.')), r = parseFloat(fxRate.replace(',', '.'));
+		const el = document.getElementById('amount') as HTMLInputElement | null;
+		if (el && a > 0 && r > 0) el.value = (Math.round((a / r) * 100) / 100).toFixed(2);
+	}
+	async function fetchRate() {
+		fxMessage = '';
+		const date = (document.getElementById('date') as HTMLInputElement | null)?.value || localDateString();
+		try {
+			const res = await fetch(`${base}/api/fx?currency=${fxCurrency}&date=${date}`);
+			if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || 'errore');
+			const body = await res.json();
+			fxRate = String(body.rate);
+			fxMessage = `Cambio BCE del ${formatDate(body.date)}`;
+			applyFx();
+		} catch (e) {
+			fxMessage = (e as Error).message;
+		}
+	}
 
 	async function handleFileSelect(e: any) {
 		const file = e.target.files[0];
@@ -158,6 +240,8 @@
         }
 
         receiptFileName = file.name;
+		receiptSource = file.type.startsWith('image/') ? file : null;
+		ocrMessage = '';
 
 		if (file.type.startsWith('image/')) {
 			const img = new Image();
@@ -296,11 +380,16 @@
 
 <div class="container">
 	<!-- Dashboard Cards -->
+	<div class="period-tabs">
+		{#each [['month', 'Questo mese'], ['year', 'Quest\'anno'], ['all', 'Tutto']] as [key, label]}
+			<a href="?p={key}" data-sveltekit-noscroll class="period-tab {data.period === key ? 'on' : ''}">{label}</a>
+		{/each}
+	</div>
 	<div class="dashboard">
 		<div class="summary-card card-income">
 			<div class="card-icon"><i class="fas fa-arrow-down"></i></div>
 			<div class="card-content">
-				<h3>Entrate Totali</h3>
+				<h3>Entrate{data.period === 'all' ? ' totali' : data.period === 'year' ? ' dell\'anno' : ' del mese'}</h3>
 				<p class="amount income-amount">{formatEuro(data.summary.totalIncome)}</p>
 			</div>
 		</div>
@@ -308,7 +397,7 @@
 		<div class="summary-card card-expense">
 			<div class="card-icon"><i class="fas fa-arrow-up"></i></div>
 			<div class="card-content">
-				<h3>Uscite Totali</h3>
+				<h3>Uscite{data.period === 'all' ? ' totali' : data.period === 'year' ? ' dell\'anno' : ' del mese'}</h3>
 				<p class="amount expense-amount">{formatEuro(data.summary.totalExpenses)}</p>
 			</div>
 		</div>
@@ -417,6 +506,42 @@
 
 	<!-- This month: budget, end-of-month forecast, account balances -->
 	<div class="month-panel">
+		<!-- Current finances: what the family really has -->
+		{#each [data.position] as p}
+		<div class="month-card">
+			<h3><i class="fas fa-wallet"></i> Finanze attuali</h3>
+			<div class="position-main">
+				<div>
+					<span class="label">Disponibile oggi</span>
+					<strong class="position-total {p.available < 0 ? 'expense-amount' : 'income-amount'}">{formatEuro(p.available)}</strong>
+				</div>
+				<div>
+					<span class="label">Stima a fine mese</span>
+					<strong class="position-total {p.endOfMonth < 0 ? 'expense-amount' : ''}">{formatEuro(p.endOfMonth)}</strong>
+				</div>
+			</div>
+			<ul class="position-rows">
+				<li><span>{p.hasAccounts ? 'Liquidità sui conti' : 'Saldo complessivo'}</span><strong>{formatEuro(p.bank)}</strong></li>
+				<li><span>− Carta di credito da saldare</span><strong class={p.cardTotal > 0 ? 'expense-amount' : ''}>{formatEuro(p.cardTotal)}</strong></li>
+				<li class="sum"><span>= Disponibile</span><strong>{formatEuro(p.available)}</strong></li>
+				{#if p.goalsSaved > 0}
+					<li><span>− Accantonato negli <a href="{base}/goals">obiettivi</a></span><strong>{formatEuro(p.goalsSaved)}</strong></li>
+					<li class="sum"><span>= Libero da obiettivi</span><strong>{formatEuro(p.free)}</strong></li>
+				{/if}
+				{#if p.hasAssets}
+					<li><span>+ Beni e investimenti <small>({formatEuro(p.liabilities)} di debiti)</small></span><strong>{formatEuro(p.assets - p.liabilities)}</strong></li>
+					<li class="sum"><span>= <a href="{base}/wealth">Patrimonio netto</a></span><strong>{formatEuro(p.netWorth)}</strong></li>
+				{/if}
+				{#if p.pendingIncome > 0 || p.pendingExpense > 0}
+					<li><span>Ricorrenti fino a fine mese</span><strong>{#if p.pendingIncome > 0}<span class="income-amount">+{formatEuro(p.pendingIncome)}</span> {/if}{#if p.pendingExpense > 0}<span class="expense-amount">−{formatEuro(p.pendingExpense)}</span>{/if}</strong></li>
+				{/if}
+			</ul>
+			<p class="month-note">
+				{#if p.hasAccounts}Saldi dei conti definiti in Categorie → Conti. Le spese con carta non ancora addebitate sono ancora in banca fino al saldo.{:else}Nessun conto definito: uso il saldo di tutti i movimenti. Definisci i conti in Categorie → Conti per un dato più preciso.{/if}
+			</p>
+		</div>
+		{/each}
+
 		<div class="month-card">
 			<h3><i class="fas fa-calendar-check"></i> {italianMonths[data.currentMonth - 1]} {data.currentYear}</h3>
 			<div class="month-figures">
@@ -452,6 +577,33 @@
 				</p>
 			{/each}
 		</div>
+
+		{#if data.deadlines.length > 0}
+		<div class="month-card">
+			<h3><i class="fas fa-bell"></i> Scadenze</h3>
+			<ul class="upcoming">
+				{#each data.deadlines.slice(0, 6) as d}
+					<li>
+						<span class="when {d.daysLeft < 0 ? 'expense-amount' : ''}">{d.daysLeft < 0 ? 'scaduta' : d.daysLeft === 0 ? 'oggi' : d.daysLeft + ' gg'}</span>
+						<span class="what">{d.title}<small> · {formatDate(d.dueDate).slice(0, 5)}</small></span>
+						<span>{d.amount > 0 ? formatEuro(d.amount) : ''}</span>
+					</li>
+				{/each}
+			</ul>
+			<p class="month-note"><a href="{base}/deadlines">Gestisci le scadenze</a></p>
+		</div>
+		{/if}
+
+		{#if data.insights.items.length > 0}
+		<div class="month-card">
+			<h3><i class="fas fa-lightbulb"></i> Consigli e anomalie</h3>
+			<ul class="insights">
+				{#each data.insights.items as i}
+					<li class={i.level}><i class="fas {i.level === 'good' ? 'fa-check-circle' : i.level === 'warn' ? 'fa-exclamation-triangle' : 'fa-info-circle'}"></i> {i.text}</li>
+				{/each}
+			</ul>
+		</div>
+		{/if}
 
 		{#if data.upcoming.length > 0}
 		{@const out = data.upcoming.filter((u) => u.type === 'expense').reduce((a, u) => a + u.amount, 0)}
@@ -526,6 +678,7 @@
 					appliedRule = null;
                     compressedReceiptBlob = null;
                     receiptFileName = '';
+                    resetExtras();
                     const fInput = document.getElementById('receipt_file') as HTMLInputElement;
                     if (fInput) fInput.value = '';
 				};
@@ -562,13 +715,37 @@
 				<div class="form-row">
 					<div class="form-group">
 						<label for="amount">Importo (€)</label>
-						<input type="number" id="amount" name="amount" min="0.01" step="0.01" required placeholder="0,00">
+						<input type="number" id="amount" name="amount" min="0.01" step="0.01" required placeholder="0,00" readonly={fxOpen && !!fxRate && !!fxAmount}>
+						<button type="button" class="quick-tag" style="margin-top:6px;" onclick={() => { fxOpen = !fxOpen; if (!fxOpen) { fxAmount = ''; fxRate = ''; fxMessage = ''; } }}>
+							<i class="fas fa-globe"></i> {fxOpen ? 'Solo euro' : 'Valuta estera'}
+						</button>
 					</div>
 					<div class="form-group">
 						<label for="date">Data</label>
 						<input type="date" id="date" name="date" required value={localDateString()}>
 					</div>
 				</div>
+
+				{#if fxOpen}
+					<div class="form-row fx-box">
+						<div class="form-group">
+							<label for="orig_currency">Valuta</label>
+							<select id="orig_currency" name="orig_currency" bind:value={fxCurrency} onchange={() => { fxRate = ''; }}>
+								{#each fxCurrencies as c}<option value={c}>{c}</option>{/each}
+							</select>
+						</div>
+						<div class="form-group">
+							<label for="orig_amount">Importo in valuta</label>
+							<input type="number" id="orig_amount" name="orig_amount" min="0.01" step="0.01" bind:value={fxAmount} oninput={applyFx}>
+						</div>
+						<div class="form-group">
+							<label for="fx_rate">Cambio (1 € = …)</label>
+							<input type="number" id="fx_rate" name="fx_rate" min="0.000001" step="any" bind:value={fxRate} oninput={applyFx}>
+							<button type="button" class="quick-tag" style="margin-top:6px;" onclick={fetchRate}><i class="fas fa-download"></i> Cambio BCE</button>
+						</div>
+					</div>
+					{#if fxMessage}<p class="month-note" style="margin-top:-6px;">{fxMessage}</p>{/if}
+				{/if}
 
 				<div class="form-group">
 					<label for="category">Categoria</label>
@@ -595,6 +772,12 @@
                     {#if compressedReceiptBlob && receiptFileName}
                         <div style="font-size:0.8rem; color:var(--accent-green); margin-top:5px; font-weight:600;"><i class="fas fa-check-circle"></i> {receiptFileName} pronto ({Math.round(compressedReceiptBlob.size / 1024)} KB)</div>
                     {/if}
+					{#if receiptSource}
+						<button type="button" class="quick-tag" style="margin-top:8px;" onclick={readReceipt} disabled={ocrBusy}>
+							<i class="fas fa-magic"></i> {ocrBusy ? `Lettura in corso… ${ocrProgress}%` : 'Leggi lo scontrino e compila'}
+						</button>
+					{/if}
+					{#if ocrMessage}<p class="month-note">{ocrMessage}</p>{/if}
 				</div>
 
                 {#if formType === 'expense'}
@@ -755,7 +938,14 @@
 		</div>
 		{/if}
 		{#if bulkMessage}
-			<div class="bulk-message"><i class="fas fa-check-circle"></i> {bulkMessage} <button type="button" onclick={() => (bulkMessage = '')} aria-label="Chiudi"><i class="fas fa-times"></i></button></div>
+			<div class="bulk-message"><i class="fas fa-check-circle"></i> {bulkMessage}
+				{#if undoBatch}
+					<form method="POST" action="?/restoreDeleted" use:enhance={undoEnhance} style="display:inline; margin:0 0 0 8px;">
+						<input type="hidden" name="batch" value={undoBatch}>
+						<button type="submit" style="text-decoration:underline; font-weight:700;"><i class="fas fa-undo"></i> Annulla</button>
+					</form>
+				{/if}
+				<button type="button" onclick={() => { bulkMessage = ''; undoBatch = ''; }} aria-label="Chiudi"><i class="fas fa-times"></i></button></div>
 		{/if}
 		{#if selectedIds.length > 0}
 			<div class="bulk-bar">
@@ -861,7 +1051,7 @@
                                 <button class="edit-btn" title="Modifica" onclick={() => editTransaction(t)} style="background:var(--bg-secondary); color:var(--text-color); border:1px solid var(--border-color); padding:6px 10px; border-radius:4px; cursor:pointer;">
                                     <i class="fas fa-edit"></i>
                                 </button>
-								<form method="POST" action="?/deleteTransaction" use:enhance={({ cancel }) => { if(!confirm(`Confermi l'eliminazione definitiva di questa transazione?`)) cancel(); }} class="inline" style="margin:0;">
+								<form method="POST" action="?/deleteTransaction" use:enhance={deleteEnhance} class="inline" style="margin:0;">
 									<input type="hidden" name="id" value={t.id}>
 									<button class="delete-btn" title="Elimina" style="padding:6px 10px;">
 										<i class="fas fa-trash-alt"></i>
@@ -960,7 +1150,13 @@
             <div class="form-row" style="display:flex; gap:15px; margin-bottom:15px;">
                 <div class="form-group" style="flex:1;">
                     <label>Importo (€)</label>
-                    <input type="number" name="amount" min="0.01" step="0.01" required bind:value={editingTransaction.amount}>
+                    <input type="number" name="amount" min="0.01" step="0.01" required bind:value={editingTransaction.amount} readonly={!!editingTransaction.origCurrency}>
+                    {#if editingTransaction.origCurrency}
+                        <input type="hidden" name="orig_currency" value={editingTransaction.origCurrency}>
+                        <input type="hidden" name="orig_amount" value={editingTransaction.origAmount}>
+                        <input type="hidden" name="fx_rate" value={editingTransaction.fxRate}>
+                        <small style="color:var(--text-muted);">Pagato {editingTransaction.origAmount} {editingTransaction.origCurrency} (cambio {editingTransaction.fxRate}). Per cambiarlo elimina e reinserisci.</small>
+                    {/if}
                 </div>
                 <div class="form-group" style="flex:1;">
                     <label>Data</label>
@@ -1059,6 +1255,21 @@
 	.label { font-size:0.75rem; color:var(--text-muted); }
 	.month-note { font-size:0.8rem; color:var(--text-muted); margin-top:8px; }
 	.forecast-marker { position:absolute; top:-3px; bottom:-3px; width:3px; background:var(--text-primary); border-radius:2px; opacity:0.7; }
+	.insights { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; font-size:0.9rem; }
+	.insights li { display:flex; gap:8px; align-items:flex-start; }
+	.insights li.good { color:var(--accent-green); }
+	.insights li.warn { color:var(--accent-orange, #e67e22); }
+	.insights li.info { color:var(--text-muted); }
+	.fx-box { background:var(--bg-secondary); border-radius:8px; padding:10px; margin-bottom:12px; }
+	.period-tabs { display:flex; gap:8px; margin-bottom:12px; }
+	.period-tab { padding:5px 14px; border-radius:16px; border:1px solid var(--border-color); color:var(--text-muted); text-decoration:none; font-size:0.85rem; }
+	.period-tab.on { border-color:var(--accent-blue); color:var(--accent-blue); background:rgba(67, 97, 238, 0.1); }
+	.position-main { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+	.position-main div { display:flex; flex-direction:column; gap:4px; }
+	.position-total { font-size:1.5rem; }
+	.position-rows { list-style:none; margin:0; padding:0; font-size:0.9rem; }
+	.position-rows li { display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-bottom:1px solid var(--border-color); }
+	.position-rows li.sum { font-weight:700; }
 	.accounts { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:12px; }
 	.account { background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; cursor:pointer; text-align:left; color:var(--text-primary); }
 	.account:hover { border-color:var(--accent-blue); }

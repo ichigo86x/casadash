@@ -1,14 +1,16 @@
 import { and, eq, like, lte, sql } from 'drizzle-orm';
 import { db } from '$lib/server/db';
-import { budgets, recurringTransactions, transactions } from '$lib/server/db/schema';
+import { budgets, goalContributions, goals, recurringTransactions, transactions } from '$lib/server/db/schema';
+import { assetTotals } from '$lib/server/assets';
 import { hasTag, notTransfer } from '$lib/server/transfers';
 import { localDateString, nextOccurrence } from '$lib/dates';
 
 // Shared by the dashboard and the Home Assistant sensors.
 
 // Sums of income/expense; callers add `notTransfer` so moves between own accounts never count
-export const incomeSum = sql<number>`coalesce(sum(case when ${transactions.type} = 'income' then ${transactions.amount} end), 0)`;
-export const expenseSum = sql<number>`coalesce(sum(case when ${transactions.type} = 'expense' then ${transactions.amount} end), 0)`;
+// Rounded to cents in SQL: amounts are floats, and thousands of additions would otherwise leave 0.0000001 residues
+export const incomeSum = sql<number>`round(coalesce(sum(case when ${transactions.type} = 'income' then ${transactions.amount} end), 0), 2)`;
+export const expenseSum = sql<number>`round(coalesce(sum(case when ${transactions.type} = 'expense' then ${transactions.amount} end), 0), 2)`;
 
 /** Current month: totals, budget usage with category warnings, and the end-of-month forecast. */
 export async function monthOverview(now = new Date()) {
@@ -73,12 +75,16 @@ export async function monthOverview(now = new Date()) {
 	};
 }
 
-/** Balance of each account tag. Transfers count here: they move money between accounts. */
+/**
+ * Balance of each account tag as of today. Transfers count here: they move money between accounts.
+ * Movements dated in the future are not on the account yet, so they are left out.
+ */
 export async function accountBalances(tags: string[]) {
 	const accounts: { tag: string; balance: number }[] = [];
+	const today = localDateString();
 	for (const tag of tags) {
-		const [r] = await db.select({ income: incomeSum, expense: expenseSum }).from(transactions).where(hasTag(tag));
-		accounts.push({ tag, balance: r.income - r.expense });
+		const [r] = await db.select({ income: incomeSum, expense: expenseSum }).from(transactions).where(and(hasTag(tag), lte(transactions.date, today)));
+		accounts.push({ tag, balance: Math.round((r.income - r.expense) * 100) / 100 });
 	}
 	return accounts;
 }
@@ -88,4 +94,72 @@ export async function creditCardUnsettled() {
 	const [cc] = await db.select({ total: sql<number>`coalesce(sum(${transactions.amount}), 0)`, count: sql<number>`count(*)` })
 		.from(transactions).where(and(eq(transactions.paymentMethod, 'credit_card'), eq(transactions.settled, 0)));
 	return cc;
+}
+
+/**
+ * Snapshot of the family's current finances.
+ *
+ * - `bank`: money physically on the accounts. Card expenses still unsettled have not left the bank yet,
+ *   so when they carry an account tag (and are already subtracted from that balance) they are added back.
+ * - `available`: what is really free today = bank minus the card bill still to be paid.
+ * - `free`: available minus what is set aside for active savings goals.
+ * - `endOfMonth`: available adjusted by the recurring income and expenses still due this month.
+ * With no accounts defined, the overall balance of all movements is used instead.
+ */
+export async function financialPosition(
+	accountTags: string[],
+	accounts: { tag: string; balance: number }[],
+	upcoming: { date: string; type: 'income' | 'expense'; amount: number }[],
+	now = new Date()
+) {
+	const unsettled = await db.select({ amount: transactions.amount, tags: transactions.tags }).from(transactions)
+		.where(and(eq(transactions.paymentMethod, 'credit_card'), eq(transactions.settled, 0)));
+	let cardTotal = 0;
+	let cardOnAccounts = 0; // already subtracted from an account balance
+	for (const t of unsettled) {
+		cardTotal += t.amount;
+		let tags: string[] = [];
+		try { tags = JSON.parse(t.tags || '[]'); } catch {}
+		if (tags.some((tag) => accountTags.includes(tag))) cardOnAccounts += t.amount;
+	}
+
+	let ledger: number; // sum of balances as recorded
+	if (accountTags.length > 0) {
+		ledger = accounts.reduce((s, a) => s + a.balance, 0);
+	} else {
+		const [all] = await db.select({ income: incomeSum, expense: expenseSum }).from(transactions).where(lte(transactions.date, localDateString(now)));
+		ledger = all.income - all.expense;
+		cardOnAccounts = cardTotal; // every expense is already in the overall balance
+	}
+	const bank = ledger + cardOnAccounts;
+	const available = bank - cardTotal;
+
+	const [saved] = await db.select({ total: sql<number>`coalesce(sum(${goalContributions.amount}), 0)` })
+		.from(goalContributions).innerJoin(goals, eq(goals.id, goalContributions.goalId))
+		.where(eq(goals.archived, 0));
+	const goalsSaved = Math.max(0, saved.total);
+
+	const monthEnd = localDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+	const due = upcoming.filter((u) => u.date <= monthEnd);
+	const pendingExpense = due.filter((u) => u.type === 'expense').reduce((s, u) => s + u.amount, 0);
+	const pendingIncome = due.filter((u) => u.type === 'income').reduce((s, u) => s + u.amount, 0);
+
+	const owned = await assetTotals();
+
+	return {
+		bank,
+		cardTotal,
+		// Beyond the accounts: houses, investments, loans (see /wealth)
+		assets: owned.assets,
+		liabilities: owned.liabilities,
+		hasAssets: owned.count > 0,
+		netWorth: Math.round((available + owned.assets - owned.liabilities) * 100) / 100,
+		available,
+		goalsSaved,
+		free: available - goalsSaved,
+		pendingExpense,
+		pendingIncome,
+		endOfMonth: available + pendingIncome - pendingExpense,
+		hasAccounts: accountTags.length > 0
+	};
 }

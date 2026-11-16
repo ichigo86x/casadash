@@ -18,6 +18,13 @@
         </div>
     {/if}
 
+    {#if form?.tempPassword}
+        <div style="background:var(--bg-card); border:1px solid var(--accent-orange, #e67e22); padding:14px; border-radius:8px; margin-bottom:20px;">
+            <i class="fas fa-key"></i> Password temporanea per <strong>{form.tempFor}</strong>: <code style="font-size:1.2rem; user-select:all;">{form.tempPassword}</code><br>
+            <small style="color:var(--text-muted);">Non verrà mostrata di nuovo. L'utente dovrà sceglierne una nuova al primo accesso; le sue sessioni sono state chiuse.</small>
+        </div>
+    {/if}
+
     {#if !isAdmin}
         <div style="background:var(--bg-card); border:1px solid var(--border-color); padding:12px; border-radius:8px; margin-bottom:20px; color:var(--text-muted);">
             <i class="fas fa-info-circle"></i> Solo un amministratore può aggiungere, eliminare o modificare i membri.
@@ -39,7 +46,7 @@
                 </div>
                 <div class="form-group">
                     <label for="password">Password Iniziale</label>
-                    <input type="password" id="password" name="password" required minlength="6" placeholder="Min. 6 caratteri">
+                    <input type="password" id="password" name="password" required minlength="10" autocomplete="new-password" placeholder="Min. 10 caratteri">
                 </div>
 
                 <div class="form-group">
@@ -96,6 +103,16 @@
                                 </td>
                                 <td>
                                     {#if isAdmin && u.id !== data?.user?.id}
+                                        <form method="POST" action="?/resetPassword" use:enhance={({ cancel }) => { if(!confirm('Generare una password temporanea? L\'utente verrà disconnesso.')) cancel(); }} class="inline">
+                                            <input type="hidden" name="id" value={u.id}>
+                                            <button class="delete-btn" style="color:var(--accent-blue);" title="Reimposta password"><i class="fas fa-key"></i></button>
+                                        </form>
+                                        {#if u.hasMfa}
+                                        <form method="POST" action="?/resetMfa" use:enhance={({ cancel }) => { if(!confirm('Disattivare la verifica in due passaggi di questo utente?')) cancel(); }} class="inline">
+                                            <input type="hidden" name="id" value={u.id}>
+                                            <button class="delete-btn" style="color:var(--accent-orange, #e67e22);" title="Disattiva MFA dell'utente"><i class="fas fa-shield-alt"></i></button>
+                                        </form>
+                                        {/if}
                                         <form method="POST" action="?/deleteUser" use:enhance={({ cancel }) => { if(!confirm('Sei sicuro di voler eliminare questo utente? Tutte le sue associazioni andranno forzatamente a te.')) cancel(); }} class="inline">
                                             <input type="hidden" name="id" value={u.id}>
                                             <button class="delete-btn" title="Elimina Utente">

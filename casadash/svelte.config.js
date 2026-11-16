@@ -14,8 +14,26 @@ const config = {
 			relative: true
 		},
 		// Ingress and reverse proxies change Host/Origin; CSRF is mitigated by SameSite=Lax session cookies
+		// (hooks.server.ts runs its own, Sec-Fetch-Site based check: see lib/server/csrf.ts)
 		csrf: {
 			checkOrigin: false
+		},
+		// Content-Security-Policy: scripts only from this app (SvelteKit adds hashes for its inline bootstrap).
+		// Fonts and icons still come from Google Fonts and cdnjs; frame-ancestors is added in hooks.server.ts.
+		csp: {
+			mode: 'auto',
+			directives: {
+				'default-src': ['self'],
+				'script-src': ['self', 'wasm-unsafe-eval'],
+				'style-src': ['self', 'unsafe-inline', 'https://fonts.googleapis.com', 'https://cdnjs.cloudflare.com'],
+				'font-src': ['self', 'data:', 'https://fonts.gstatic.com', 'https://cdnjs.cloudflare.com'],
+				'img-src': ['self', 'data:', 'blob:'],
+				'connect-src': ['self'],
+				'worker-src': ['self', 'blob:'],
+				'object-src': ['none'],
+				'base-uri': ['self'],
+				'form-action': ['self']
+			}
 		}
 	},
 	vitePlugin: {

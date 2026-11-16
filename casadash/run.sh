@@ -22,5 +22,19 @@ fi
 export HOST="${HOST:-0.0.0.0}"
 
 cd /app
-# start.mjs runs the database migrations and supervises the server
+
+if [ "$(id -u)" = "0" ]; then
+    # Data folders may have been created by root (older versions, Home Assistant): hand them to the app user,
+    # then run without privileges. Only done when the owner differs, so restarts stay fast.
+    BACKUP="${BACKUP_DIR:-$DATA_DIR/backups}"
+    mkdir -p "$BACKUP"
+    for dir in "$DATA_DIR" "$BACKUP"; do
+        if [ "$(stat -c %u "$dir")" != "$(id -u node)" ]; then
+            chown -R node:node "$dir"
+        fi
+    done
+    # start.mjs runs the database migrations and supervises the server
+    exec su-exec node:node node start.mjs
+fi
+
 exec node start.mjs

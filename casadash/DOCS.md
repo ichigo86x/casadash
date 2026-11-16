@@ -80,3 +80,10 @@ Puoi anche scaricare un archivio ZIP da **Backup** dentro CasaDash e ripristinar
 - Tutti gli utenti devono rifare l'accesso.
 - Se l'account `admin` usa ancora la password `admin`, al prossimo accesso viene chiesto di cambiarla.
 - La porta diretta è ora disattivata di default. Se usavi `http://<ip>:8081`, riattivala dalla scheda **Rete**.
+
+## Novità della 1.6
+
+- **Finanze attuali** in dashboard: disponibile oggi e stima a fine mese. Il sensore `sensor.casadash_disponibile` li porta in Home Assistant, insieme a `sensor.casadash_scadenze_imminenti` e `sensor.casadash_tasso_risparmio`.
+- **Patrimonio**, **Scadenze** e **Banche** (solo amministratori) hanno una voce nel menu.
+- **Sicurezza:** le password nuove hanno almeno 10 caratteri; in *MFA* trovi i codici di recupero; in *Profilo* i dispositivi collegati. Se un utente dimentica la password, l'amministratore la reimposta da *Famiglia*.
+- Se CasaDash è dietro un reverse proxy e i salvataggi dei form vengono rifiutati ("origine non consentita"), imposta la variabile `TRUSTED_ORIGINS` con l'indirizzo pubblico (solo per Docker e installazione diretta).

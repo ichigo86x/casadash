@@ -117,6 +117,31 @@
 	</div>
 	{/if}
 
+    {#if data.detected.length > 0}
+    <div class="calendar-card" style="margin-bottom:24px;">
+        <h2><i class="fas fa-search-dollar"></i> Abbonamenti rilevati</h2>
+        <p style="color:var(--text-muted); margin-top:0;">Spese che si ripetono con la stessa cadenza e lo stesso importo nel tuo storico, ma non sono ancora automatiche.</p>
+        {#each data.detected as d (d.key)}
+            <form method="POST" action="?/addJob" use:enhance style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:8px 0; border-top:1px solid var(--border-color);">
+                <input type="hidden" name="description" value={d.description}>
+                <input type="hidden" name="type" value="expense">
+                <input type="hidden" name="amount" value={d.amount}>
+                <input type="hidden" name="category" value={d.category}>
+                <input type="hidden" name="payment_method" value="bancomat">
+                <input type="hidden" name="frequency" value={d.frequency}>
+                <input type="hidden" name="next_date" value={d.nextDate}>
+                <input type="hidden" name="tags" value={JSON.stringify(d.tags)}>
+                <div style="flex:1; min-width:200px;">
+                    <strong>{d.description}</strong><br>
+                    <small style="color:var(--text-muted);">{d.frequency === 'monthly' ? 'ogni mese' : d.frequency === 'yearly' ? 'ogni anno' : 'ogni settimana'} · {d.count} volte · ultima il {d.lastDate.split('-').reverse().join('/')} · prossima {d.nextDate.split('-').reverse().join('/')}</small>
+                </div>
+                <strong>€{d.amount.toLocaleString('it-IT', { minimumFractionDigits: 2 })}</strong>
+                <button class="btn-submit btn-auto btn-primary-action"><i class="fas fa-plus"></i> Automatizza</button>
+            </form>
+        {/each}
+    </div>
+    {/if}
+
     <div class="main-content">
         <div class="form-section">
             <h2><i class="fas fa-plus-circle"></i> Nuova Automazione</h2>

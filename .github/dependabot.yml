@@ -1,0 +1,17 @@
+# Weekly update PRs: npm packages, the Docker base image and the GitHub Actions
+# (Dependabot also keeps the action versions current, instead of pinning them by hash by hand).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /casadash
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: docker
+    directory: /casadash
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

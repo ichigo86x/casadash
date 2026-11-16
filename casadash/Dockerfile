@@ -14,7 +14,7 @@ RUN npm run build && npm prune --omit=dev
 
 # --- Runtime stage ---
 FROM node:24-alpine
-RUN apk add --no-cache tini
+RUN apk add --no-cache tini su-exec
 WORKDIR /app
 ENV NODE_ENV=production
 
@@ -27,5 +27,9 @@ RUN sed -i 's/\r$//' /app/run.sh && chmod a+x /app/run.sh
 
 EXPOSE 8099
 VOLUME ["/data"]
+
+# run.sh starts as root only to fix the ownership of the data folders, then drops to the unprivileged "node" user
+HEALTHCHECK --interval=60s --timeout=5s --start-period=40s --retries=3 \
+  CMD wget -q -O /dev/null "http://127.0.0.1:${PORT:-8099}/login" || exit 1
 
 ENTRYPOINT ["/sbin/tini", "--", "/app/run.sh"]

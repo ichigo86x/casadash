@@ -51,6 +51,7 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
   - **tag liberi** con suggerimenti, più pulsanti rapidi per `Trasferimento` e per i conti;
   - **autocompletamento della descrizione** dai movimenti precedenti;
   - **allegato ricevuta** (immagine o PDF), visualizzabile e rimovibile;
+  - **annulla eliminazione**: i movimenti eliminati si ripristinano per 30 giorni dal messaggio di conferma;
   - indicazione dell'utente della famiglia che ha registrato il movimento.
 - **Lista e ricerca:**
   - paginazione lato server, veloce anche con anni di dati;
@@ -63,6 +64,33 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
   - la dashboard mostra totale e numero dei movimenti non ancora addebitati;
   - **saldo in blocco** per intervallo di date, con la data di partenza precompilata dall'ultimo saldo.
   - **elenco delle spese da saldare** con selezione, per segnare come saldate solo quelle addebitate.
+
+### Finanze attuali (dashboard)
+- **Disponibile oggi** = liquidità sui conti − carta di credito ancora da saldare. Le spese con carta non addebitate, se hanno il tag di un conto, sono già tolte dal saldo di quel conto ma i soldi sono ancora in banca: il calcolo le riaggiunge alla liquidità e le sottrae come debito.
+- **Libero da obiettivi:** il disponibile meno quanto accantonato negli obiettivi attivi.
+- **Stima a fine mese:** il disponibile corretto con i ricorrenti (entrate e uscite) ancora in arrivo nel mese.
+- **Patrimonio netto**, se hai registrato beni e debiti in *Patrimonio*.
+- Senza conti definiti si usa il saldo di tutti i movimenti. I movimenti con data futura non contano ancora nei saldi.
+- Le tre carte in alto (entrate, uscite, bilancio) seguono *Questo mese*, *Quest'anno* o *Tutto*.
+- **Consigli e anomalie:** tasso di risparmio del mese, categorie che al ritmo attuale superano la media dei 3 mesi precedenti, spese singole molto sopra il normale per la loro categoria.
+
+### Patrimonio netto (`/wealth`)
+- Beni (casa, auto, investimenti, TFR) e debiti (mutuo, prestiti) con valore aggiornabile a mano; ogni aggiornamento è un punto dello storico.
+- Grafico degli ultimi 24 mesi: conti + beni − debiti.
+
+### Scadenze (`/deadlines`)
+- Bollo, assicurazioni, tasse e altro, con importo previsto, ripetizione (mensile, annuale) e giorni di preavviso.
+- Quando mancano meno giorni del preavviso (o sono scadute) compaiono nella dashboard e nel sensore `scadenze_imminenti`.
+- *Pagata* può registrare la spesa e sposta la scadenza al ciclo successivo, oppure la chiude.
+
+### Valuta estera e scontrini
+- Nel form di un movimento, *Valuta estera*: importo in valuta e cambio (1 € = …). Il pulsante *Cambio BCE* chiede il tasso del giorno a frankfurter.dev; è l'unica chiamata a Internet fatta per l'utente, e il cambio si può sempre digitare. L'importo salvato è in euro, l'originale resta registrato.
+- *Leggi lo scontrino e compila*: riconoscimento del testo (Tesseract, italiano) nel browser. Motore e lingua sono serviti da CasaDash stessa (`static/ocr`, copiati da `scripts/copy-ocr.mjs`), senza servizi esterni. Propone esercente, totale e data: controlla sempre prima di salvare.
+
+### Collegamento bancario (`/settings/bank`, solo amministratori)
+- Sincronizza i movimenti dal conto via **Open Banking PSD2** (GoCardless Bank Account Data, sola lettura). Le chiavi API sono cifrate nel database; CasaDash non vede mai le credenziali bancarie.
+- Ogni conto della banca si abbina a un conto di CasaDash (tag). Ogni 8 ore (la banca consente poche letture al giorno) arrivano i nuovi movimenti, con le regole automatiche applicate, il tag `Banca` e senza doppioni rispetto a importazioni da file. Il consenso va rinnovato ogni 90 giorni.
+- Nota: GoCardless ha chiuso le nuove registrazioni nel 2025. Funziona con chiavi già esistenti; in alternativa resta l'importazione da file.
 
 ### Regole automatiche (`/settings/rules`)
 - Formato: "se la descrizione contiene *testo* → categoria, tag aggiuntivi, trasferimento". Il confronto ignora maiuscole e accenti.
@@ -383,6 +411,10 @@ Variabili d'ambiente, oppure file `.env` nell'installazione diretta:
 | `COOKIE_SECURE` | `auto` | Flag `Secure` del cookie di sessione. `auto` lo attiva solo per richieste HTTPS, anche dietro un proxy che invia `X-Forwarded-Proto`. Valori ammessi: `true`, `false`. |
 | `BODY_SIZE_LIMIT` | `100M` | Dimensione massima di upload per ricevute e backup. |
 | `TZ` | fuso del sistema | Fuso orario, ad esempio `Europe/Rome`. |
+| `TRUSTED_ORIGINS` | vuoto | Indirizzi pubblici (separati da virgola) da cui sono ammessi i form, se un proxy cambia l'host. Es. `https://casa.example.com`. |
+| `ADDRESS_HEADER`, `XFF_DEPTH` | vuoto | Dietro un reverse proxy: intestazione con l'indirizzo reale del client (`X-Forwarded-For`) e numero di proxy fidati. Servono perché il blocco dei tentativi di accesso sia per client e non per proxy. |
+| `FRAME_ANCESTORS` | `'self'` | Chi può incorniciare CasaDash (CSP `frame-ancestors`). |
+| `CASADASH_SECRET_KEY` | generata in `DATA_DIR/secret.key` | Chiave che cifra i segreti MFA e le chiavi bancarie. Se la imposti, non finisce nei backup. |
 
 L'add-on Home Assistant non ha opzioni da configurare.
 
@@ -455,6 +487,7 @@ npm run dev          # esegue seed.js e avvia Vite su http://localhost:8081
 | `npm start` | Avvio di produzione tramite `start.mjs` |
 | `npm run seed` | Solo migrazioni e dati iniziali |
 | `npm run check` | Type-check con svelte-check |
+| `npm test` | Test unitari (Vitest): validazioni, CSRF, importazione, rilevamento abbonamenti, anomalie, OCR, Open Banking |
 | `npm run lint` / `npm run format` | Prettier |
 | `npm run db:generate` / `db:migrate` / `db:push` / `db:studio` | drizzle-kit |
 
@@ -483,11 +516,18 @@ L'add-on usa questa immagine (`image:` in `casadash/config.yaml`). Ogni aumento 
 ## Sicurezza
 
 - Tutte le pagine, le API e le ricevute richiedono l'accesso.
-- Le sessioni sono lato server: il cookie contiene un token casuale e il database ne conserva solo l'hash.
-- La verifica MFA è legata a un token temporaneo di 5 minuti.
-- Dopo 5 tentativi di accesso falliti l'accesso è bloccato per 15 minuti, per indirizzo e utente.
-- Il cookie è `HttpOnly` e `SameSite=Lax`. Il flag `Secure` dipende da `COOKIE_SECURE`.
-- La password predefinita deve essere cambiata al primo accesso.
-- Gli allegati accettano solo immagini e PDF, e i ripristini rifiutano archivi non validi.
+- **Sessioni** lato server: il cookie contiene un token casuale e il database ne conserva solo l'hash. In *Profilo* si vedono i dispositivi collegati e si possono disconnettere.
+- **Password:** minimo 10 caratteri, password comuni rifiutate, bcrypt costo 12. La password predefinita va cambiata al primo accesso. L'amministratore può reimpostare quella di un utente (password temporanea da cambiare al primo accesso).
+- **MFA (TOTP):** il segreto è cifrato nel database (AES-256-GCM), ogni codice vale una volta sola, ci sono 10 codici di recupero e per disattivarla servono password e un codice. L'amministratore può disattivarla a un utente che ha perso telefono e codici.
+- **Blocco dei tentativi:** 5 errori per client e account, 20 sul solo account, 40 sul solo client (15 minuti), salvati nel database e quindi validi anche dopo un riavvio. Dietro un reverse proxy imposta `ADDRESS_HEADER`.
+- **CSRF:** i POST da altri siti, o da altre applicazioni sullo stesso host, sono rifiutati (`Sec-Fetch-Site` e `Origin`). Se un proxy cambia l'indirizzo, indica quello pubblico in `TRUSTED_ORIGINS`.
+- **Intestazioni:** Content-Security-Policy (script solo dall'app), `frame-ancestors`, `Referrer-Policy`, `Permissions-Policy`, HSTS su HTTPS.
+- Il cookie è `HttpOnly` e `SameSite=Lax`. Il flag `Secure` dipende da `COOKIE_SECURE`: in `auto` si attiva solo se il proxy invia `X-Forwarded-Proto: https` (o `ORIGIN` è https).
+- **Dati in ingresso:** tipo, data reale, importo finito e positivo, categoria, tag e lunghezze sono verificati sul server.
+- **Allegati:** il formato si riconosce dal contenuto (immagini e PDF), massimo 15 MB; i file non più collegati a un movimento vengono rimossi dopo 24 ore (e dopo 30 giorni se erano in un movimento eliminato).
+- **Ripristino:** l'archivio deve contenere un database integro con almeno un amministratore; ci sono limiti sulle dimensioni; prima di sostituire i dati se ne crea un backup (`CasaDash_Backup_…` nella cartella dei backup).
+- **Registro attività** per gli amministratori: accessi, cambi di password e MFA, gestione utenti, eliminazioni, ripristini, collegamenti bancari.
+- Nel container, il processo gira come utente non privilegiato; `HEALTHCHECK` incluso.
+- Il repository ha CI (type-check, test, build, `npm audit`) e Dependabot per npm, immagine Docker e GitHub Actions.
 
 CasaDash resta pensata per una **rete domestica**. Per l'accesso da Internet usa Ingress di Home Assistant, una VPN (WireGuard, Tailscale) o un reverse proxy HTTPS con `COOKIE_SECURE=true`. Non pubblicare direttamente la porta 8099.

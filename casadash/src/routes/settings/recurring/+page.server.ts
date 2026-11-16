@@ -5,9 +5,15 @@ import { fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { upcomingRecurring } from '$lib/server/wealth';
 import { getSetting } from '$lib/server/settings';
+import { isValidDate, parseAmount } from '$lib/validate';
+import { detectSubscriptions } from '$lib/subscriptions';
+import { descriptionKey } from '$lib/import';
+import { transactions } from '$lib/server/db/schema';
+import { and, gte, sql } from 'drizzle-orm';
+import { localDateString } from '$lib/dates';
 
 export const load: PageServerLoad = async ({ locals }) => {
-    if (!locals.user) return { jobs: [], categories: [], summary: {}, upcoming: [] };
+    if (!locals.user) return { jobs: [], categories: [], summary: {}, upcoming: [], detected: [] };
 
     const jobs = await db.select().from(recurringTransactions).where(eq(recurringTransactions.createdBy, locals.user.id));
     const dbCategories = await db.select().from(categories);
@@ -34,7 +40,19 @@ export const load: PageServerLoad = async ({ locals }) => {
 
     // Family calendar: everyone's active schedules, not only the current user's
     const upcoming = await upcomingRecurring(await getSetting<string[]>('account_tags', []));
-    return { jobs, categories: dbCategories, summary, upcoming };
+
+    // Subscriptions hiding in the last two years of spending that are not automated yet
+    const today = localDateString();
+    const since = localDateString(new Date(new Date().getFullYear() - 2, new Date().getMonth(), 1));
+    const history = await db.select({ description: transactions.description, amount: transactions.amount, date: transactions.date, type: transactions.type, category: transactions.category, tags: transactions.tags })
+        .from(transactions).where(and(sql`${transactions.type} = 'expense'`, gte(transactions.date, since))).limit(30000);
+    const allJobs = await db.select({ description: recurringTransactions.description }).from(recurringTransactions);
+    const detected = detectSubscriptions(
+        history.map((h) => ({ ...h, tags: (() => { try { return JSON.parse(h.tags || '[]'); } catch { return []; } })() })),
+        new Set(allJobs.map((j) => descriptionKey(j.description))),
+        today
+    ).slice(0, 12);
+    return { jobs, categories: dbCategories, summary, upcoming, detected };
 };
 
 export const actions: Actions = {
@@ -54,8 +72,11 @@ export const actions: Actions = {
             return fail(400, { error: 'Dati mancanti' });
         }
 
-        const amount = parseFloat(amountStr);
-        if (isNaN(amount) || amount <= 0) return fail(400, { error: 'Importo non valido' });
+        const amount = parseAmount(amountStr);
+        if (amount === null) return fail(400, { error: 'Importo non valido' });
+        if (!isValidDate(nextDate) || !['daily', 'weekly', 'monthly', 'yearly'].includes(frequency) || !['income', 'expense'].includes(type)) {
+            return fail(400, { error: 'Dati non validi' });
+        }
 
         const tagsJson = data.get('tags')?.toString() || '[]';
         let tagsArr = [];
@@ -129,8 +150,11 @@ export const actions: Actions = {
             return fail(400, { error: 'Dati mancanti' });
         }
 
-        const amount = parseFloat(amountStr);
-        if (isNaN(amount) || amount <= 0) return fail(400, { error: 'Importo non valido' });
+        const amount = parseAmount(amountStr);
+        if (amount === null) return fail(400, { error: 'Importo non valido' });
+        if (!isValidDate(nextDate) || !['daily', 'weekly', 'monthly', 'yearly'].includes(frequency) || !['income', 'expense'].includes(type)) {
+            return fail(400, { error: 'Dati non validi' });
+        }
 
         let tagsArr = [];
         try { tagsArr = JSON.parse(tagsJson); } catch (e) {}
