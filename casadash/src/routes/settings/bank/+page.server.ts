@@ -139,7 +139,7 @@ export const actions: Actions = {
 		const id = parseInt((await request.formData()).get('id')?.toString() || '0');
 		try {
 			const r = await syncConnection(id, true);
-			return { synced: `${r.added} nuovi movimenti (${r.skipped} già presenti)` };
+			return { synced: `${r.added} nuovi movimenti, ${r.skipped} già presenti${r.conflicts ? `, ${r.conflicts} da verificare in «Possibili doppioni»` : ''}` };
 		} catch (e) {
 			return fail(502, { error: (e as Error).message });
 		}

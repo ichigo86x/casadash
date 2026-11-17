@@ -7,7 +7,9 @@ import { decryptSecret, encryptSecret } from '$lib/server/secrets';
 import { loadActiveRules } from '$lib/server/rules';
 import { matchRule, ruleTags } from '$lib/rules';
 import { TRANSFER_TAG } from '$lib/transfers';
-import { descriptionKey } from '$lib/import';
+import { findSimilarIndexed, indexKnown, worst } from '$lib/duplicates';
+import { knownBetween, matchView } from '$lib/server/duplicates';
+import { isKnownOrQueued, queueConflict } from '$lib/server/conflicts';
 import {
 	extractAuthCode, mapBankTransaction, mapEnableBankingTransaction, sessionAccounts, syncFrom,
 	type BankTransaction, type EnableBankingTransaction, type MappedMovement
@@ -296,7 +298,21 @@ async function fetchMovements(conn: typeof bankConnections.$inferSelect): Promis
  * Downloads the booked transactions of a connection and stores the new ones.
  * Movements already present (same bank id, or the same day, amount and description from a CSV import) are skipped.
  */
-export async function syncConnection(id: number, manual = false): Promise<{ added: number; skipped: number }> {
+/** The row stored for a bank movement: account tag, "Banca" tag, and whatever the automatic rules add. */
+export function movementValues(m: MappedMovement, accountTag: string, createdBy: number | null, rules: Awaited<ReturnType<typeof loadActiveRules>>, batch: string): typeof transactions.$inferInsert {
+	const type = m.amount < 0 ? 'expense' : 'income';
+	const rule = matchRule(rules, m.description, type);
+	const tags = [accountTag, 'Banca', ...(rule ? ruleTags(rule) : [])];
+	if (rule?.markTransfer) tags.push(TRANSFER_TAG);
+	return {
+		type, description: m.description, amount: Math.abs(m.amount), date: m.date,
+		category: rule?.category || 'Altro', paymentMethod: 'bancomat',
+		tags: JSON.stringify([...new Set(tags)]), settled: 1,
+		importBatch: batch, externalId: m.externalId, createdBy
+	};
+}
+
+export async function syncConnection(id: number, manual = false): Promise<{ added: number; skipped: number; conflicts: number }> {
 	const [conn] = await db.select().from(bankConnections).where(eq(bankConnections.id, id)).limit(1);
 	if (!conn || !conn.accountId) throw new Error('Conto non collegato');
 	if (!conn.accountTag) throw new Error('Scegli prima a quale conto di CasaDash corrisponde');
@@ -308,33 +324,34 @@ export async function syncConnection(id: number, manual = false): Promise<{ adde
 		const mapped = await fetchMovements(conn);
 
 		const rules = await loadActiveRules();
-		const existing = await db.select({ externalId: transactions.externalId, date: transactions.date, amount: transactions.amount, type: transactions.type, description: transactions.description })
-			.from(transactions);
-		const knownIds = new Set(existing.map((e) => e.externalId).filter(Boolean));
-		const knownSig = new Set(existing.map((e) => `${e.date}|${e.type}|${e.amount}|${descriptionKey(e.description)}`));
 		const batch = `bank-${Date.now().toString(36)}`;
+
+		// Compared with everything registered around those dates, whatever its source (file import, PayPal, manual):
+		// identical movements are skipped, look-alikes wait for the user's decision instead of being added or lost
+		const dates = mapped.map((m) => m.date).sort();
+		const index = dates.length ? indexKnown(await knownBetween(dates[0], dates[dates.length - 1])) : new Map();
 
 		const values: (typeof transactions.$inferInsert)[] = [];
 		let skipped = 0;
+		let conflicts = 0;
 		for (const m of mapped) {
+			if (await isKnownOrQueued(m.externalId)) { skipped++; continue; }
 			const type = m.amount < 0 ? 'expense' : 'income';
-			const amount = Math.abs(m.amount);
-			if (knownIds.has(m.externalId) || knownSig.has(`${m.date}|${type}|${amount}|${descriptionKey(m.description)}`)) { skipped++; continue; }
-			const rule = matchRule(rules, m.description, type);
-			const tags = [conn.accountTag, 'Banca', ...(rule ? ruleTags(rule) : [])];
-			if (rule?.markTransfer) tags.push(TRANSFER_TAG);
-			values.push({
-				type, description: m.description, amount, date: m.date,
-				category: rule?.category || 'Altro', paymentMethod: 'bancomat',
-				tags: JSON.stringify([...new Set(tags)]), settled: 1,
-				importBatch: batch, externalId: m.externalId, createdBy: conn.createdBy
-			});
+			const found = findSimilarIndexed({ date: m.date, amount: Math.abs(m.amount), type, description: m.description, paymentMethod: 'bancomat', tags: [conn.accountTag], externalId: m.externalId }, index);
+			const level = worst(found);
+			if (level === 'exact') { skipped++; continue; }
+			if (level) {
+				await queueConflict({ connectionId: conn.id, institution: conn.institutionName, accountTag: conn.accountTag, createdBy: conn.createdBy, movement: m, matches: found.slice(0, 5).map(matchView) });
+				conflicts++;
+				continue;
+			}
+			values.push(movementValues(m, conn.accountTag, conn.createdBy, rules, batch));
 		}
 		db.transaction((tx) => {
 			for (let i = 0; i < values.length; i += 200) tx.insert(transactions).values(values.slice(i, i + 200)).run();
 		});
 		await db.update(bankConnections).set({ lastSync: new Date().toISOString(), lastError: null, status: 'linked' }).where(eq(bankConnections.id, id));
-		return { added: values.length, skipped };
+		return { added: values.length, skipped, conflicts };
 	} catch (e) {
 		const message = (e as Error).message;
 		// 401/403 from the bank API usually means the consent expired

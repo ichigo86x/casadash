@@ -46,6 +46,7 @@ Verifica sempre con `npm run check` (0 errori attesi; i warning a11y esistenti s
 - Eventi sensibili: `audit(locals.user, 'azione', dettaglio, ip)` (`lib/server/audit.ts`); le etichette sono in `settings/audit/+page.svelte`.
 - Colonne/tabelle nuove: `seed.js` (blocco "added in 1.6.0" con `addColumn`) + `db/schema.ts`.
 - OCR: `scripts/copy-ocr.mjs` copia motore e lingua in `static/ocr` (gitignored) a ogni dev/build; `lib/ocr.ts` li carica da lì.
+- Doppioni: `lib/duplicates.ts` (puro, testato: `findSimilar`, livelli exact/strong/probable) + `lib/server/duplicates.ts`. Usato da inserimento manuale (`addTransaction`, `dup=keep|replace:ID`), preview/import e sync bancaria; i casi incerti della sync finiscono in coda (`lib/server/conflicts.ts`, pagina `/conflicts`).
 - Open Banking: `lib/openbanking.ts` (puro, testato) + `lib/server/openbanking.ts` (Enable Banking e GoCardless; sync ogni 8 ore dal job orario). Enable Banking: JWT RS256 firmato con la chiave dell'app, redirect fisso `https://enablebanking.com/` e codice incollato dall'utente (`finishEnableBanking`).
 
 ## Rilascio

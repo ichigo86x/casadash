@@ -8,8 +8,10 @@ import { InvalidReceiptError, saveReceipt } from '$lib/server/receipts';
 import { validateTransaction, isValidDate } from '$lib/validate';
 import { restoreBatch, trashRows } from '$lib/server/trash';
 import { audit } from '$lib/server/audit';
+import { matchView, replaceMovement, similarInDb } from '$lib/server/duplicates';
 import { monthInsights } from '$lib/server/insights';
 import { dueSoon } from '$lib/server/deadlines';
+import { conflictCount } from '$lib/server/conflicts';
 import { hasTag, isTransfer, notTransfer } from '$lib/server/transfers';
 import { getSetting } from '$lib/server/settings';
 import { loadActiveRules } from '$lib/server/rules';
@@ -176,6 +178,7 @@ export const load: PageServerLoad = async ({ url }) => {
 		position,
 		insights: await monthInsights(now),
 		deadlines: await dueSoon(today),
+		conflictCount: await conflictCount(),
 		allCategories: dbCategories,
 		incomeCategories: dbCategories.filter((c) => c.type === 'income'),
 		expenseCategories: dbCategories.filter((c) => c.type === 'expense'),
@@ -199,6 +202,14 @@ export const actions: Actions = {
 		if ('error' in parsed) return fail(400, { error: parsed.error });
 		const v = parsed.value;
 
+		// The same payment may already be there (typed twice, or imported from the bank or PayPal).
+		// Not blocking: the user decides to keep both, replace the existing one or drop the new one.
+		const dup = data.get('dup')?.toString() || '';
+		if (!dup) {
+			const similar = await similarInDb({ date: v.date, amount: v.amount, type: v.type, description: v.description, paymentMethod: v.paymentMethod, tags: v.tags });
+			if (similar.length) return fail(409, { conflict: similar.slice(0, 5).map(matchView) });
+		}
+
 		let receiptPath = null;
 		const receipt = data.get('receipt') as File | null;
 		if (receipt && receipt.size > 0 && receipt.name && receipt.name !== 'undefined') {
@@ -208,6 +219,15 @@ export const actions: Actions = {
 				if (e instanceof InvalidReceiptError) return fail(400, { error: e.message });
 				throw e;
 			}
+		}
+
+		if (dup.startsWith('replace:')) {
+			const targetId = parseInt(dup.slice(8));
+			const ok = targetId > 0 && (await replaceMovement(targetId, { description: v.description, amount: v.amount, date: v.date, category: v.category, tags: v.tags, paymentMethod: v.paymentMethod, settled: v.settled }));
+			if (!ok) return fail(404, { error: 'Il movimento da sostituire non esiste più' });
+			if (receiptPath) await db.update(transactions).set({ receiptPath }).where(eq(transactions.id, targetId));
+			await audit(locals.user, 'transaction.replaced', `#${targetId} ${v.description} ${v.amount}`);
+			return { success: true, replaced: targetId };
 		}
 
 		try {

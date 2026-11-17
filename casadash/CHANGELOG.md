@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.3
+
+- **Doppioni tra fonti diverse:** ogni movimento nuovo, inserito a mano, importato da file o arrivato dalla banca, viene confrontato con tutti quelli già registrati, anche con data diversa di qualche giorno, descrizione diversa o provenienza da un altro conto (PayPal, BancoPosta, carta di credito). Stesso riferimento di transazione, stesso esercente o stesso importo vicino nel tempo vengono segnalati.
+- Mai bloccante: *Tieni entrambi*, *Sostituisci l'esistente* o *Salta*. Nell'inserimento manuale compare un riquadro; nell'importazione un menu per riga; per il collegamento bancario la nuova pagina **Possibili doppioni**, con avviso nella dashboard.
+
 ## 1.6.2
 
 - **Collegamento bancario con Enable Banking**, gratuito per uso personale (anche per Poste, BNL e altre banche italiane: la disponibilità si verifica cercando la banca nella pagina *Banche*). Accanto a GoCardless, che resta per chi ha già le chiavi.

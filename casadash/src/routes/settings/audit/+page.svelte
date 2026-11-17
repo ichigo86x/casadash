@@ -26,7 +26,10 @@
         'bank.disconnected': 'Banca scollegata',
         'import.done': 'Importazione',
         'import.undone': 'Importazione annullata',
-        'import.edited': 'Importazione modificata'
+        'import.edited': 'Importazione modificata',
+        'import.replaced': 'Movimenti sostituiti da importazione',
+        'transaction.replaced': 'Movimento sostituito',
+        'bank.conflict_resolved': 'Possibile doppione risolto'
     };
     const warn = (a: string) => a.endsWith('failed') || a.includes('reset') || a.includes('restored') || a.includes('deleted') || a.includes('disabled');
 </script>

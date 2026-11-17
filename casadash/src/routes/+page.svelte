@@ -575,6 +575,15 @@
 		{/each}
 	</div>
 
+	{#if data.conflictCount > 0}
+		<a class="insights-bar has-warn" href="{base}/conflicts" style="text-decoration:none;">
+			<i class="fas fa-code-compare"></i>
+			<span>Possibili doppioni dalla banca da verificare</span>
+			<span class="insights-badge">{data.conflictCount}</span>
+			<i class="fas fa-chevron-right" style="margin-left:auto;"></i>
+		</a>
+	{/if}
+
 	{#if data.insights.items.length > 0}
 		{@const warnCount = data.insights.items.filter((i) => i.level === 'warn').length}
 		<button type="button" class="insights-bar {warnCount > 0 ? 'has-warn' : ''}" onclick={() => (showInsights = true)}>
@@ -690,8 +699,10 @@
 				if (compressedReceiptBlob) {
 					formData.set('receipt', compressedReceiptBlob, compressedReceiptBlob.type === 'image/webp' ? 'receipt.webp' : receiptFileName);
 				}
-				return async ({ update }) => {
-					await update();
+				return async ({ result, update }) => {
+					// A conflict or an error keeps what was typed: only a saved movement clears the form
+					await update({ reset: result.type === 'success' });
+					if (result.type !== 'success') return;
 					currentTags = [];
 					formType = 'expense';
 					categoryTouched = false;
@@ -818,6 +829,26 @@
 				</div>
 				{/if}
                 {/if}
+
+				{#if form?.conflict}
+					<div class="conflict-box" role="alert">
+						<strong><i class="fas fa-exclamation-triangle"></i> Esiste già qualcosa di simile</strong>
+						<p class="month-note" style="margin:4px 0 8px;">Potrebbe essere lo stesso pagamento. Scegli cosa fare:</p>
+						{#each form.conflict as c (c.id)}
+							<div class="conflict-row">
+								<div>
+									<span>{c.description}</span>
+									<small>{formatDate(c.date)} · {formatEuro(c.amount)} · {c.category}{c.tags.length ? ' · ' + c.tags.join(', ') : ''}<br><em>{c.level === 'exact' ? 'identico' : c.level === 'strong' ? 'molto simile' : 'possibile'}: {c.reason}</em></small>
+								</div>
+								<button type="submit" name="dup" value="replace:{c.id}" class="btn-submit btn-auto btn-secondary" title="Aggiorna quel movimento con i dati che hai inserito"><i class="fas fa-exchange-alt"></i> Sostituisci</button>
+							</div>
+						{/each}
+						<div class="conflict-actions">
+							<button type="submit" name="dup" value="keep" class="btn-submit btn-auto btn-primary-action"><i class="fas fa-copy"></i> Tieni entrambi</button>
+							<button type="button" class="btn-submit btn-auto btn-secondary" onclick={() => { const f = document.getElementById('description')?.closest('form') as HTMLFormElement | null; f?.reset(); currentTags = []; resetExtras(); form = null; }}><i class="fas fa-times"></i> Non salvare</button>
+						</div>
+					</div>
+				{/if}
 
 				<button type="submit" class="btn-submit {formType === 'income' ? 'income-mode' : ''}">
 					<i class="fas fa-save"></i> Aggiungi {formType === 'income' ? 'Entrata' : 'Uscita'}
@@ -1297,6 +1328,11 @@
 	.modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(5px); -webkit-backdrop-filter:blur(5px); display:flex; justify-content:center; align-items:center; z-index:9999; padding:16px; overscroll-behavior:contain; }
 	.modal-box { background:var(--bg-color); width:100%; max-width:500px; max-height:calc(100vh - 32px); max-height:calc(100dvh - 32px); overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; border-radius:12px; padding:25px; box-shadow:0 10px 30px rgba(0,0,0,0.3); }
 	.modal-close { background:none; border:none; color:var(--text-muted); font-size:1.1rem; cursor:pointer; padding:6px; }
+	.conflict-box { border:1px solid var(--accent-orange, #e67e22); border-left:4px solid var(--accent-orange, #e67e22); background:rgba(230,126,34,0.08); border-radius:8px; padding:12px; margin-bottom:12px; }
+	.conflict-row { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--border-color); flex-wrap:wrap; }
+	.conflict-row div { display:flex; flex-direction:column; gap:2px; min-width:180px; flex:1; }
+	.conflict-row small { color:var(--text-muted); }
+	.conflict-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
 	.batch-chip { display:inline-flex; align-items:center; gap:8px; margin:0 0 12px; padding:5px 12px; border-radius:16px; border:1px solid var(--accent-blue); background:rgba(67, 97, 238, 0.1); color:var(--accent-blue); font-size:0.85rem; }
 	.batch-chip button { background:none; border:none; color:inherit; cursor:pointer; padding:0 2px; }
 	.insights-bar { display:flex; align-items:center; gap:10px; width:100%; margin:0 0 16px; padding:12px 16px; border-radius:var(--radius-lg, 12px); border:1px solid var(--border-color); background:var(--bg-card); color:var(--text-primary); cursor:pointer; font-size:0.95rem; text-align:left; }

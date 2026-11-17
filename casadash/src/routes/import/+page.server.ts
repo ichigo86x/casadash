@@ -9,6 +9,8 @@ import { TRANSFER_TAG } from '$lib/transfers';
 import { matchRule, ruleTags } from '$lib/rules';
 import { loadActiveRules } from '$lib/server/rules';
 import { audit } from '$lib/server/audit';
+import { findSimilarIndexed, indexKnown, worst } from '$lib/duplicates';
+import { knownBetween, matchView, replaceMovement } from '$lib/server/duplicates';
 import type { Actions, PageServerLoad } from './$types';
 
 // Tag added to every imported movement, so an import can be found (and undone) from the search
@@ -16,7 +18,8 @@ const IMPORT_TAG = 'Importato';
 const MAX_ROWS = 5000;
 
 type IncomingRow = { date: string; description: string; amount: number };
-type ImportRow = IncomingRow & { category: string; transfer?: boolean; tags?: string[] };
+// replaceId: the user chose to overwrite that existing movement instead of adding a new one
+type ImportRow = IncomingRow & { category: string; transfer?: boolean; tags?: string[]; replaceId?: number };
 type ImportRecord = { batch: string; at: string; count: number; account: string; user: string; file: string; undone?: boolean };
 const HISTORY_SIZE = 20;
 
@@ -65,7 +68,10 @@ export const actions: Actions = {
 	// Suggests a category for each row (from past transactions with the same description)
 	// and flags rows that already exist in CasaDash.
 	preview: async ({ request }) => {
-		const rows = readRows<IncomingRow>((await request.formData()).get('rows'));
+		const form = await request.formData();
+		const rows = readRows<IncomingRow>(form.get('rows'));
+		const previewAccount = form.get('account')?.toString().trim() || '';
+		const previewPayment = form.get('payment_method')?.toString() || '';
 		if (!rows) return fail(400, { error: `File non valido o troppo grande (massimo ${MAX_ROWS} righe).` });
 		if (rows.length === 0) return fail(400, { error: 'Nessuna riga con data e importo validi.' });
 
@@ -86,24 +92,14 @@ export const actions: Actions = {
 		const activeRules = await loadActiveRules();
 
 		const dates = rows.map((r) => r.date).sort();
-		const existing = await db
-			.select({
-				date: transactions.date,
-				amount: transactions.amount,
-				type: transactions.type,
-				description: transactions.description,
-				category: transactions.category,
-				paymentMethod: transactions.paymentMethod,
-				tags: transactions.tags
-			})
-			.from(transactions)
-			.where(and(gte(transactions.date, dates[0]), lte(transactions.date, dates[dates.length - 1])));
+		// What is already registered around these dates, from any source: other imports, the bank link, manual entries
+		const index = indexKnown(await knownBetween(dates[0], dates[dates.length - 1]));
 
 		const suggestions = rows.map((r) => {
 			const type = r.amount < 0 ? 'expense' : 'income';
 			const key = descriptionKey(r.description);
 			const amount = Math.abs(r.amount);
-			const sameDay = existing.filter((e) => e.date === r.date && e.type === type && Math.abs(e.amount - amount) < 0.005);
+			const found = findSimilarIndexed({ date: r.date, amount, type, description: r.description, paymentMethod: previewPayment || undefined, tags: previewAccount ? [previewAccount] : [] }, index);
 			// A matching rule wins over the history of similar descriptions
 			const rule = matchRule(activeRules, r.description, type);
 			const fromHistory = byKey.get(`${type}|${key}`) || byShortKey.get(`${type}|${shortKey(key)}`) || null;
@@ -113,14 +109,10 @@ export const actions: Actions = {
 				rule: rule ? rule.pattern : null,
 				tags: rule ? ruleTags(rule) : [],
 				transfer: !!rule?.markTransfer,
-				// exact: same date, amount and description; probable: same date and amount only
-				duplicate: sameDay.some((e) => descriptionKey(e.description) === key) ? 'exact' : sameDay.length ? 'probable' : null,
+				// exact / strong (same reference or merchant) / probable (same amount, near date): see lib/duplicates.ts
+				duplicate: worst(found),
 				// The already registered movements, shown to the user to decide
-				matches: sameDay.slice(0, 5).map((e) => {
-					let tags: string[] = [];
-					try { tags = JSON.parse(e.tags || '[]'); } catch {}
-					return { description: e.description, amount: e.amount, category: e.category, paymentMethod: e.paymentMethod, tags };
-				})
+				matches: found.slice(0, 5).map(matchView)
 			};
 		});
 		return { suggestions };
@@ -141,7 +133,17 @@ export const actions: Actions = {
 		const validCategories = new Set((await db.select({ name: categories.name }).from(categories)).map((c) => c.name));
 		const batch = `${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`;
 
-		const values = rows.map((r) => {
+		// Rows the user chose to merge into an existing movement are updated, not inserted
+		const replacing = rows.filter((r) => Number.isInteger(r.replaceId) && (r.replaceId as number) > 0);
+		let replaced = 0;
+		for (const r of replacing) {
+			const tags = [IMPORT_TAG, ...(account ? [account] : []), ...(Array.isArray(r.tags) ? r.tags.map((t) => String(t).trim().slice(0, 50)).filter(Boolean) : [])];
+			if (r.transfer) tags.push(TRANSFER_TAG);
+			if (await replaceMovement(r.replaceId as number, { description: String(r.description).slice(0, 500), amount: Math.round(Math.abs(r.amount) * 100) / 100, date: r.date, category: validCategories.has(r.category) ? r.category : undefined, tags })) replaced++;
+		}
+		const insertRows = rows.filter((r) => !replacing.includes(r));
+
+		const values = insertRows.map((r) => {
 			const tags = [IMPORT_TAG];
 			if (account) tags.unshift(account);
 			for (const t of Array.isArray(r.tags) ? r.tags : []) {
@@ -193,8 +195,9 @@ export const actions: Actions = {
 		});
 		await setSetting('import_history', history.slice(0, HISTORY_SIZE));
 
+		if (replaced) await audit(locals.user, 'import.replaced', `${replaced} movimenti sostituiti da ${(data.get('file')?.toString() || '').slice(0, 80)}`);
 		console.log(`[IMPORT] ${values.length} movimenti importati da ${locals.user!.username}${account ? ` (conto ${account})` : ''}`);
-		return { imported: values.length, batch };
+		return { imported: values.length, replaced, batch };
 	},
 
 	// Fixes a whole import after the fact: add or remove a tag, change category, account or payment method

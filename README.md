@@ -149,6 +149,17 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 - **Importazioni recenti** con file, conto, utente e numero di movimenti, e **Annulla** per eliminare in un colpo tutti i movimenti di un'importazione.
   - **Modifica** per correggere un'importazione già fatta (tag, conto, categoria, metodo di pagamento) e **Vedi** per aprirne i movimenti nella lista.
 
+### Doppioni tra fonti diverse
+Lo stesso pagamento può comparire due volte: un acquisto PayPal e il suo addebito sul conto, una spesa con carta e l'addebito mensile, un movimento digitato a mano e poi importato. CasaDash confronta ogni movimento nuovo con quelli già registrati, **da qualsiasi fonte** (altre importazioni, collegamento bancario, inserimento manuale), a parità di tipo e importo:
+- **Identico** (stessa data e descrizione, oppure stesso identificativo della banca): saltato.
+- **Molto simile:** stesso riferimento di transazione (codici lunghi con cifre), oppure stesso esercente a uno o più giorni di distanza da un altro conto.
+- **Possibile:** stesso importo e stessa data, o fino a 3 giorni di differenza se arriva da un altro conto o metodo di pagamento.
+
+Non è mai bloccante, decidi tu:
+- **Inserimento manuale:** compare un riquadro con i movimenti simili e tre scelte: *Tieni entrambi*, *Sostituisci* (aggiorna quello esistente) o *Non salvare*.
+- **Importazione da file:** ogni riga segnalata ha il menu *Salta / Tieni entrambi / Sostituisci l'esistente*. Per default si saltano gli identici e i molto simili, si tengono i possibili.
+- **Collegamento bancario:** la sincronizzazione è automatica e non può chiedere: i movimenti simili restano in attesa nella pagina **Possibili doppioni** (avviso nella dashboard) con le stesse tre scelte, anche per tutti insieme.
+
 ### Obiettivi di risparmio (`/goals`)
 - Obiettivi con nome, importo da raggiungere, scadenza facoltativa, colore e icona.
 - Versamenti e prelievi con data e nota.

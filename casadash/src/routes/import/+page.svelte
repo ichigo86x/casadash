@@ -26,13 +26,17 @@
 	let defaultIncome = $state(data.incomeCategories.includes('Altro') ? 'Altro' : data.incomeCategories[0] || 'Altro');
 
 	// Step 3: reviewed rows
-	type Match = { description: string; amount: number; category: string; paymentMethod: string; tags: string[] };
+	type Match = { id: number; date: string; level: 'exact' | 'strong' | 'probable'; reason: string; description: string; amount: number; category: string; paymentMethod: string; tags: string[] };
+	// What to do with a row that looks like something already registered
+	type Decision = 'skip' | 'keep' | 'replace';
 	type ReviewRow = ParsedRow & {
 		include: boolean;
 		category: string;
 		transfer: boolean;
 		duplicate: string | null;
 		matches: Match[];
+		decision: Decision;
+		replaceId: number | null;
 		suggested: boolean;
 		source: 'rule' | 'history' | null;
 		rule: string | null;
@@ -141,6 +145,9 @@
 		error = '';
 		const form = new FormData();
 		form.set('rows', JSON.stringify(candidates.map(({ date, description, amount }) => ({ date, description, amount }))));
+		// The account and payment method tell the check whether a near-date match comes from another source
+		form.set('account', account);
+		form.set('payment_method', paymentMethod);
 		const res = await post('preview', form);
 		busy = false;
 		if (res.type !== 'success') {
@@ -162,7 +169,10 @@
 			matches: suggestions[i].matches || [],
 			editing: false,
 			showMatches: false,
-			include: suggestions[i].duplicate !== 'exact',
+			// Identical or sharing a reference: skipped unless the user says otherwise. Only "possible": kept.
+			include: suggestions[i].duplicate !== 'exact' && suggestions[i].duplicate !== 'strong',
+			decision: (suggestions[i].duplicate === 'exact' || suggestions[i].duplicate === 'strong' ? 'skip' : 'keep') as Decision,
+			replaceId: suggestions[i].matches?.[0]?.id ?? null,
 			category: suggestions[i].category || (r.amount < 0 ? defaultExpense : defaultIncome),
 			suggested: !!suggestions[i].category,
 			source: suggestions[i].source,
@@ -177,7 +187,9 @@
 		busy = true;
 		error = '';
 		const form = new FormData();
-		form.set('rows', JSON.stringify(selected.map(({ date, description, amount, category, transfer, tags }) => ({ date, description, amount, category, transfer, tags }))));
+		form.set('rows', JSON.stringify(selected.map(({ date, description, amount, category, transfer, tags, decision, replaceId }) => ({
+			date, description, amount, category, transfer, tags, ...(decision === 'replace' && replaceId ? { replaceId } : {})
+		}))));
 		form.set('account', account);
 		form.set('payment_method', paymentMethod);
 		if (settled) form.set('settled', 'on');
@@ -195,7 +207,17 @@
 		}
 	}
 
-	const setAll = (include: boolean) => review.forEach((r) => (r.include = include));
+	const setAll = (include: boolean) => review.forEach((r) => { r.include = include; if (r.duplicate) r.decision = include ? 'keep' : 'skip'; });
+	function decide(r: ReviewRow, d: Decision) {
+		r.decision = d;
+		r.include = d !== 'skip';
+	}
+	// Ticking or unticking the box by hand is a decision too
+	function onTick(r: ReviewRow) {
+		if (!r.duplicate) return;
+		r.decision = r.include ? (r.decision === 'skip' ? 'keep' : r.decision) : 'skip';
+	}
+	const levelLabel = { exact: 'già presente', strong: 'molto simile', probable: 'possibile doppione' } as const;
 </script>
 
 <svelte:head>
@@ -430,7 +452,7 @@
 				<tbody>
 					{#each review as r}
 						<tr class:dim={!r.include}>
-							<td><input type="checkbox" bind:checked={r.include} aria-label="Importa riga {r.line}"></td>
+							<td><input type="checkbox" bind:checked={r.include} onchange={() => onTick(r)} aria-label="Importa riga {r.line}"></td>
 							<td style="white-space:nowrap;">{formatDate(r.date)}</td>
 							<td class="desc-cell">
 								{#if r.editing}
@@ -455,18 +477,26 @@
 										title={matchTooltip(r.matches)}
 										onclick={() => (r.showMatches = !r.showMatches)}
 									>
-										{r.duplicate === 'exact' ? 'già presente' : 'possibile doppione'} <i class="fas fa-chevron-{r.showMatches ? 'up' : 'down'}"></i>
+										{levelLabel[r.duplicate as 'exact' | 'strong' | 'probable']} <i class="fas fa-chevron-{r.showMatches ? 'up' : 'down'}"></i>
 									</button>
+									<select class="decision" aria-label="Cosa fare" value={r.decision} onchange={(e) => decide(r, e.currentTarget.value as Decision)}>
+										<option value="skip">Salta</option>
+										<option value="keep">Tieni entrambi</option>
+										<option value="replace">Sostituisci l'esistente</option>
+									</select>
 								{/if}
 								{#if r.showMatches && r.matches.length}
 									<div class="matches">
-										<strong>Già registrat{r.matches.length === 1 ? 'o' : 'i'} il {formatDate(r.date)}:</strong>
+										<strong>Simili già registrati:</strong>
 										{#each r.matches as m}
-											<div class="match">
+											<label class="match">
+												{#if r.decision === 'replace' && r.matches.length > 1}<input type="radio" name="rep-{r.line}" checked={r.replaceId === m.id} onchange={() => (r.replaceId = m.id)}>{/if}
 												<span>{m.description}</span>
+												<span class="muted">{formatDate(m.date)}</span>
 												<span class="expense-amount">{formatEuro(m.amount)}</span>
 												<span class="muted">{m.category} · {paymentLabels[m.paymentMethod] || m.paymentMethod}{m.tags.length ? ' · ' + m.tags.join(', ') : ''}</span>
-											</div>
+												<em class="muted">{m.reason}</em>
+											</label>
 										{/each}
 									</div>
 								{/if}
@@ -531,6 +561,7 @@
 	.desc-cell { white-space:normal; min-width:160px; max-width:300px; font-size:0.8rem; line-height:1.3; overflow-wrap:anywhere; }
 	.desc { display:inline; line-height:1.3; }
 	button.flag { border:none; cursor:pointer; font:inherit; font-size:0.7rem; }
+	.decision { font-size:0.8rem; padding:2px 6px; margin-left:6px; }
 	.matches { margin-top:6px; padding:8px 10px; border-radius:8px; background:var(--bg-secondary); border:1px solid var(--border-color); font-size:0.8rem; display:flex; flex-direction:column; gap:4px; }
 	.match { display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; }
 </style>
