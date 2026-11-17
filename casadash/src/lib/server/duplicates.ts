@@ -17,7 +17,8 @@ const parseTags = (raw: string | null): string[] => {
 
 export const toKnown = (r: Row): Known => ({
 	id: r.id, date: r.date, amount: r.amount, type: r.type, description: r.description, category: r.category,
-	paymentMethod: r.paymentMethod, tags: parseTags(r.tags), externalId: r.externalId
+	paymentMethod: r.paymentMethod, tags: parseTags(r.tags), externalId: r.externalId,
+	altDates: [r.bookingDate, r.valueDate].filter((d): d is string => !!d && d !== r.date)
 });
 
 export function shiftDate(date: string, days: number): string {

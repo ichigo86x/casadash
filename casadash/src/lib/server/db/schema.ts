@@ -48,6 +48,9 @@ export const transactions = sqliteTable('transactions', {
 	fxRate: real('fx_rate'),
 	// Id given by the bank (Open Banking), to avoid importing a movement twice
 	externalId: text('external_id'),
+	// Booking day and value day, when they differ from the day of the operation (bank movements)
+	bookingDate: text('booking_date'),
+	valueDate: text('value_date'),
 	createdAt: text('created_at').default('CURRENT_TIMESTAMP')
 }, (table) => ({
 	dateIdx: index('date_idx').on(table.date),
@@ -200,5 +203,7 @@ export const bankConnections = sqliteTable('bank_connections', {
 	status: text('status').default('pending').notNull(),
 	lastSync: text('last_sync'),
 	lastError: text('last_error'),
+	// 1 = read this account automatically every few hours; 0 = only when asked from the Import page
+	autoSync: integer('auto_sync').default(0).notNull(),
 	createdBy: integer('created_by').references(() => users.id)
 });

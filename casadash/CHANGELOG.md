@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.0
+
+- **Importazione manuale dalla banca:** in *Importa* si sceglie il conto collegato e il periodo, si legge e si controlla l'anteprima (con i possibili doppioni) prima di importare. È ora il modo predefinito di lavorare con la banca.
+- **Lettura automatica facoltativa**, per ogni conto, accesa o spenta senza scollegarlo. Per i conti già collegati parte **spenta**.
+- **Pulizia dei movimenti con tag Banca:** tutti, di un conto o di un periodo, recuperabili per 30 giorni.
+- **Date dei movimenti bancari:** se la descrizione riporta la data dell'operazione ("POS 13/11/2026") il movimento prende quella; data di registrazione e data valuta sono conservate. Ricerca per periodo e controllo dei doppioni le considerano tutte.
+- **Ricerca nella dashboard:** nuovo filtro *Tag*; il testo cerca anche nei tag.
+
 ## 1.6.4
 
 - **Collegamento bancario:** se la banca (ad esempio Poste) rifiuta il periodo richiesto ("Wrong transactions period requested"), CasaDash riprova da solo con finestre più brevi (80, 60, 30, 14, 7 giorni). Il messaggio d'errore della banca ora è mostrato più a lungo.

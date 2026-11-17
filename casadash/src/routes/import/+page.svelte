@@ -29,7 +29,9 @@
 	type Match = { id: number; date: string; level: 'exact' | 'strong' | 'probable'; reason: string; description: string; amount: number; category: string; paymentMethod: string; tags: string[] };
 	// What to do with a row that looks like something already registered
 	type Decision = 'skip' | 'keep' | 'replace';
-	type ReviewRow = ParsedRow & {
+	// Rows read from a bank also carry its id and the other dates of the movement
+	type Cand = ParsedRow & { externalId?: string; bookingDate?: string; valueDate?: string; altDates?: string[] };
+	type ReviewRow = Cand & {
 		include: boolean;
 		category: string;
 		transfer: boolean;
@@ -56,6 +58,14 @@
 	let review: ReviewRow[] = $state([]);
 	let busy = $state(false);
 	let imported = $state<number | null>(null);
+
+	// Reading a period straight from a linked bank account (instead of a file)
+	const isoDay = (offset: number) => { const d = new Date(); d.setDate(d.getDate() + offset); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+	let bankId = $state(data.bankPreselect || data.bankAccounts[0]?.id || 0);
+	let bankFrom = $state(isoDay(-30));
+	let bankTo = $state(isoDay(0));
+	let bankMode = $state(false);
+	let bankNote = $state('');
 
 	let header = $derived(mapping ? rows[mapping.headerRow] || [] : []);
 	let signature = $derived(header.join('|'));
@@ -110,6 +120,8 @@
 		error = '';
 		review = [];
 		imported = null;
+		bankMode = false;
+		bankNote = '';
 		if (!file) return;
 		fileName = file.name;
 		try {
@@ -140,11 +152,45 @@
 		return deserialize(await res.text());
 	}
 
-	async function analyze() {
+	async function readBank() {
+		busy = true;
+		error = '';
+		review = [];
+		imported = null;
+		bankMode = false;
+		bankNote = '';
+		const fd = new FormData();
+		fd.set('id', String(bankId));
+		fd.set('from', bankFrom);
+		fd.set('to', bankTo);
+		const res = await post('bankFetch', fd);
+		if (res.type !== 'success') {
+			busy = false;
+			error = res.type === 'failure' ? String(res.data?.error) : 'Lettura dalla banca non riuscita.';
+			return;
+		}
+		const b = res.data?.bank as { rows: Cand[]; institution: string; account: string; from: string; requestedFrom: string };
+		if (b.rows.length === 0) {
+			busy = false;
+			error = 'La banca non ha restituito movimenti per questo periodo.';
+			return;
+		}
+		mapping = null;
+		rows = [];
+		fileName = `Banca: ${b.institution}`;
+		if (b.account) account = b.account;
+		paymentMethod = 'bancomat';
+		settled = true;
+		bankMode = true;
+		bankNote = b.from !== b.requestedFrom ? `La banca consente di leggere solo dal ${formatDate(b.from)}: i giorni precedenti non sono inclusi.` : '';
+		await analyze(b.rows);
+	}
+
+	async function analyze(list: Cand[] = candidates) {
 		busy = true;
 		error = '';
 		const form = new FormData();
-		form.set('rows', JSON.stringify(candidates.map(({ date, description, amount }) => ({ date, description, amount }))));
+		form.set('rows', JSON.stringify(list.map(({ date, description, amount, externalId, altDates }) => ({ date, description, amount, externalId, altDates }))));
 		// The account and payment method tell the check whether a near-date match comes from another source
 		form.set('account', account);
 		form.set('payment_method', paymentMethod);
@@ -163,7 +209,7 @@
 			duplicate: string | null;
 			matches: Match[];
 		}[];
-		review = candidates.map((r, i) => ({
+		review = list.map((r, i) => ({
 			...r,
 			duplicate: suggestions[i].duplicate,
 			matches: suggestions[i].matches || [],
@@ -183,18 +229,22 @@
 	}
 
 	async function doImport() {
-		if (!mapping || selected.length === 0) return;
+		if ((!mapping && !bankMode) || selected.length === 0) return;
 		busy = true;
 		error = '';
 		const form = new FormData();
-		form.set('rows', JSON.stringify(selected.map(({ date, description, amount, category, transfer, tags, decision, replaceId }) => ({
-			date, description, amount, category, transfer, tags, ...(decision === 'replace' && replaceId ? { replaceId } : {})
+		form.set('rows', JSON.stringify(selected.map(({ date, description, amount, category, transfer, tags, decision, replaceId, externalId, bookingDate, valueDate }) => ({
+			date, description, amount, category, transfer, tags, ...(decision === 'replace' && replaceId ? { replaceId } : {}),
+			...(bankMode ? { externalId, bookingDate, valueDate } : {})
 		}))));
+		if (bankMode) form.set('source', 'bank');
 		form.set('account', account);
 		form.set('payment_method', paymentMethod);
 		if (settled) form.set('settled', 'on');
-		form.set('signature', signature);
-		form.set('mapping', JSON.stringify(mapping));
+		if (mapping) {
+			form.set('signature', signature);
+			form.set('mapping', JSON.stringify(mapping));
+		}
 		form.set('file', fileName);
 		const res = await post('import', form);
 		busy = false;
@@ -249,6 +299,25 @@
 		<input type="file" accept=".csv,.txt,.xls,.xlsx,.ods,text/csv" onchange={onFile}>
 		<p class="muted">CSV (separatore <code>;</code>, <code>,</code> o tabulazione) oppure Excel (<code>.xls</code>, <code>.xlsx</code>) e LibreOffice (<code>.ods</code>): viene letto il primo foglio.</p>
 	</div>
+
+	{#if data.bankAccounts.length}
+	<div class="panel">
+		<h2><span class="step"><i class="fas fa-university"></i></span> Oppure leggi direttamente dalla banca</h2>
+		<div class="grid">
+			<label>Conto collegato
+				<select bind:value={bankId}>{#each data.bankAccounts as b}<option value={b.id}>{b.name}{b.tag ? ` → ${b.tag}` : ''}</option>{/each}</select>
+			</label>
+			<label>Dal <input type="date" bind:value={bankFrom} max={bankTo}></label>
+			<label>Al <input type="date" bind:value={bankTo} min={bankFrom} max={isoDay(0)}></label>
+		</div>
+		<button type="button" class="btn-submit btn-auto btn-primary-action" style="margin-top:10px;" disabled={busy || !bankId} onclick={readBank}>
+			<i class="fas {busy ? 'fa-spinner fa-spin' : 'fa-cloud-download-alt'}"></i> Leggi i movimenti
+		</button>
+		<p class="muted">Nessun movimento viene salvato adesso: si apre l'anteprima con i possibili doppioni, come per un file, e importi solo ciò che scegli. Le banche limitano a circa 90 giorni le letture senza nuovo consenso.</p>
+	</div>
+	{/if}
+
+	{#if bankNote}<p class="muted" style="margin:0 0 12px;"><i class="fas fa-info-circle"></i> {bankNote}</p>{/if}
 
 	{#if data.history.length}
 	<details class="panel" open={!mapping}>
@@ -427,7 +496,7 @@
 		{#if data.accounts.length === 0}
 			<p class="muted">Suggerimento: elenca i tuoi conti in <a href="{base}/settings/categories">Categorie → Conti</a> per assegnare i movimenti importati al conto giusto.</p>
 		{/if}
-		<button type="button" class="btn-submit btn-auto btn-primary-action" style="margin-top:10px;" disabled={busy || candidates.length === 0} onclick={analyze}>
+		<button type="button" class="btn-submit btn-auto btn-primary-action" style="margin-top:10px;" disabled={busy || candidates.length === 0} onclick={() => analyze()}>
 			<i class="fas {busy ? 'fa-spinner fa-spin' : 'fa-search'}"></i> Analizza {candidates.length} movimenti
 		</button>
 	</div>
@@ -453,7 +522,7 @@
 					{#each review as r}
 						<tr class:dim={!r.include}>
 							<td><input type="checkbox" bind:checked={r.include} onchange={() => onTick(r)} aria-label="Importa riga {r.line}"></td>
-							<td style="white-space:nowrap;">{formatDate(r.date)}</td>
+							<td style="white-space:nowrap;">{formatDate(r.date)}{#if r.bookingDate && r.bookingDate !== r.date}<br><small class="muted" title="Data in cui la banca ha registrato il movimento">reg. {formatDate(r.bookingDate)}</small>{/if}</td>
 							<td class="desc-cell">
 								{#if r.editing}
 									<input

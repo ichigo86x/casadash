@@ -122,12 +122,13 @@
     // Search & pagination run on the server: state mirrors the URL query (?q=&cat=&page=...)
     const lf = data.list;
     let itemsPerPage = $state(lf.size);
-    let showSearch = $state(!!(lf.q || lf.category || lf.type || lf.paymentMethod || lf.account || lf.min !== null || lf.max !== null || lf.from || lf.to || lf.attachment));
+    let showSearch = $state(!!(lf.q || lf.category || lf.type || lf.paymentMethod || lf.account || lf.tag || lf.min !== null || lf.max !== null || lf.from || lf.to || lf.attachment));
     let searchTerm = $state(lf.q);
     let searchCategory = $state(lf.category);
     let searchType = $state(lf.type);
     let searchPayment = $state(lf.paymentMethod);
     let searchAccount = $state(lf.account);
+    let searchTag = $state(lf.tag);
     let searchMinAmount = $state<number | null>(lf.min);
     let searchMaxAmount = $state<number | null>(lf.max);
     let searchFromDate = $state(lf.from);
@@ -140,7 +141,7 @@
         const params = new URLSearchParams();
         const set = (k: string, v: string | number | null | undefined) => { if (v !== null && v !== undefined && v !== '') params.set(k, String(v)); };
         set('q', searchTerm.trim()); set('cat', searchCategory); set('type', searchType);
-        set('pay', searchPayment); set('account', searchAccount);
+        set('pay', searchPayment); set('account', searchAccount); set('tag', searchTag.trim());
         set('min', searchMinAmount); set('max', searchMaxAmount);
         set('from', searchFromDate); set('to', searchToDate); set('att', searchAttachment); set('batch', searchBatch);
         if (data.period !== 'month') set('p', data.period);
@@ -158,7 +159,7 @@
     let filterTimer: ReturnType<typeof setTimeout> | undefined;
     let filtersReady = false;
     $effect(() => {
-        searchTerm; searchCategory; searchType; searchPayment; searchAccount; searchMinAmount; searchMaxAmount;
+        searchTerm; searchCategory; searchType; searchPayment; searchAccount; searchTag; searchMinAmount; searchMaxAmount;
         searchFromDate; searchToDate; searchAttachment; searchBatch; itemsPerPage;
         if (!filtersReady) { filtersReady = true; return; }
         clearTimeout(filterTimer);
@@ -948,6 +949,10 @@
 						<option value="cash">Contanti</option>
 					</select>
 				</div>
+				<div class="search-field">
+					<label for="search_tag">Tag</label>
+					<input id="search_tag" type="text" list="tags_list" placeholder="Es. Banca, PayPal…" bind:value={searchTag}>
+				</div>
 				{#if data.accounts.length > 0}
 				<div class="search-field">
 					<label for="search_account">Conto</label>
@@ -985,7 +990,7 @@
 				</div>
 				<div class="search-actions">
 					<button type="button" class="btn-clear-filters" onclick={() => {
-						searchTerm = ''; searchCategory = ''; searchType = ''; searchPayment = ''; searchAccount = '';
+						searchTerm = ''; searchCategory = ''; searchType = ''; searchPayment = ''; searchAccount = ''; searchTag = '';
 						searchMinAmount = null; searchMaxAmount = null;
 						searchFromDate = ''; searchToDate = ''; searchAttachment = '';
 					}}>

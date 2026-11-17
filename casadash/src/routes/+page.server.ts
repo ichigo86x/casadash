@@ -1,7 +1,7 @@
 import { db, client } from '$lib/server/db';
 import { localDateString } from '$lib/dates';
 import { transactions, categories, users } from '$lib/server/db/schema';
-import { desc, eq, and, sql, gte, lte, like, inArray, type SQL } from 'drizzle-orm';
+import { desc, eq, and, or, sql, gte, lte, like, inArray, type SQL } from 'drizzle-orm';
 import { fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { InvalidReceiptError, saveReceipt } from '$lib/server/receipts';
@@ -31,6 +31,7 @@ function listFilters(url: URL) {
 	const size = parseInt(p.get('size') || '15');
 	return {
 		q: p.get('q') || '',
+		tag: (p.get('tag') || '').slice(0, 60),
 		category: p.get('cat') || '',
 		type: p.get('type') || '',
 		paymentMethod: p.get('pay') || '',
@@ -111,7 +112,12 @@ export const load: PageServerLoad = async ({ url }) => {
 	// 7. Paginated, filtered transaction list
 	const f = listFilters(url);
 	const conditions: SQL[] = [];
-	if (f.q) conditions.push(sql`lower(${transactions.description}) LIKE ${'%' + f.q.toLowerCase() + '%'}`);
+	// The text also looks into the tags: "banca" finds what was tagged Banca
+	if (f.q) {
+		const like = '%' + f.q.toLowerCase() + '%';
+		conditions.push(sql`(lower(${transactions.description}) LIKE ${like} OR lower(${transactions.tags}) LIKE ${like})`);
+	}
+	if (f.tag) conditions.push(sql`json_valid(${transactions.tags}) AND EXISTS (SELECT 1 FROM json_each(${transactions.tags}) WHERE lower(json_each.value) = lower(${f.tag}))`);
 	if (f.category) conditions.push(eq(transactions.category, f.category));
 	if (f.type === 'transfer') conditions.push(isTransfer);
 	else if (f.type === 'income' || f.type === 'expense') conditions.push(eq(transactions.type, f.type), notTransfer);
@@ -119,8 +125,12 @@ export const load: PageServerLoad = async ({ url }) => {
 	if (f.account) conditions.push(hasTag(f.account));
 	if (f.min !== null) conditions.push(gte(transactions.amount, f.min));
 	if (f.max !== null) conditions.push(lte(transactions.amount, f.max));
-	if (f.from) conditions.push(gte(transactions.date, f.from));
-	if (f.to) conditions.push(lte(transactions.date, f.to));
+	// A movement is in the period when its operation day, its booking day or its value day is (bank movements
+	// are often booked days after they happened)
+	if (f.from || f.to) {
+		const within = (col: typeof transactions.date | typeof transactions.bookingDate | typeof transactions.valueDate) => and(f.from ? gte(col, f.from) : undefined, f.to ? lte(col, f.to) : undefined);
+		conditions.push(or(within(transactions.date), within(transactions.bookingDate), within(transactions.valueDate))!);
+	}
 	if (f.batch) conditions.push(eq(transactions.importBatch, f.batch));
 	if (f.attachment === 'with') conditions.push(sql`${transactions.receiptPath} IS NOT NULL`);
 	if (f.attachment === 'without') conditions.push(sql`${transactions.receiptPath} IS NULL`);

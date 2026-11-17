@@ -1,8 +1,10 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { eq } from 'drizzle-orm';
-import { db } from '$lib/server/db';
-import { bankConnections } from '$lib/server/db/schema';
-import { getSetting } from '$lib/server/settings';
+import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { client, db } from '$lib/server/db';
+import { bankConnections, transactions } from '$lib/server/db/schema';
+import { getSetting, setSetting } from '$lib/server/settings';
+import { restoreBatch, trashRows } from '$lib/server/trash';
+import { isValidDate } from '$lib/validate';
 import { requireAdmin } from '$lib/server/roles';
 import { audit } from '$lib/server/audit';
 import {
@@ -50,6 +52,8 @@ export const load: PageServerLoad = async ({ url }) => {
 		q: q ?? '',
 		institutions,
 		connections: await db.select().from(bankConnections),
+		// Movements carrying the "Banca" tag, for the clean-up option
+		bankMovements: (client.prepare("SELECT COUNT(*) AS n FROM transactions WHERE json_valid(tags) AND EXISTS (SELECT 1 FROM json_each(tags) WHERE lower(value) = 'banca')").get() as { n: number }).n,
 		accountTags: await getSetting<string[]>('account_tags', [])
 	};
 };
@@ -121,6 +125,53 @@ export const actions: Actions = {
 		} catch (e) {
 			return fail(400, { error: (e as Error).message });
 		}
+	},
+	// Automatic reading on or off, without unlinking the account
+	toggleAuto: async ({ request, locals, getClientAddress }) => {
+		const denied = requireAdmin(locals);
+		if (denied) return denied;
+		const id = parseInt((await request.formData()).get('id')?.toString() || '0');
+		const [conn] = await db.select().from(bankConnections).where(eq(bankConnections.id, id)).limit(1);
+		if (!conn) return fail(404, { error: 'Collegamento non trovato' });
+		await db.update(bankConnections).set({ autoSync: conn.autoSync ? 0 : 1 }).where(eq(bankConnections.id, id));
+		await audit(locals.user, 'bank.auto_sync', `${conn.institutionName}: ${conn.autoSync ? 'spenta' : 'accesa'}`, getClientAddress());
+		return { saved: true };
+	},
+	// Removes the movements tagged "Banca" (all, or one account and/or a period). They stay recoverable for 30 days.
+	cleanup: async ({ request, locals, getClientAddress }) => {
+		const denied = requireAdmin(locals);
+		if (denied) return denied;
+		const data = await request.formData();
+		const account = data.get('account')?.toString().trim() || '';
+		const from = data.get('from')?.toString() || '';
+		const to = data.get('to')?.toString() || '';
+		if ((from && !isValidDate(from)) || (to && !isValidDate(to))) return fail(400, { error: 'Date non valide' });
+
+		const conditions = [
+			sql`json_valid(${transactions.tags}) AND EXISTS (SELECT 1 FROM json_each(${transactions.tags}) WHERE lower(json_each.value) = 'banca')`,
+			...(account ? [sql`EXISTS (SELECT 1 FROM json_each(${transactions.tags}) WHERE lower(json_each.value) = lower(${account}))`] : []),
+			...(from ? [gte(transactions.date, from)] : []),
+			...(to ? [lte(transactions.date, to)] : [])
+		];
+		const rows = await db.select().from(transactions).where(and(...conditions));
+		if (rows.length === 0) return fail(404, { error: 'Nessun movimento con il tag Banca per questa selezione' });
+
+		const batch = await trashRows(rows);
+		const ids = rows.map((r) => r.id);
+		for (let i = 0; i < ids.length; i += 500) await db.delete(transactions).where(inArray(transactions.id, ids.slice(i, i + 500)));
+		// Starting over: movements waiting for a decision and the "ignored" memory go too
+		if (!account && !from && !to) {
+			await setSetting('bank_conflicts', []);
+			await setSetting('bank_skipped', []);
+		}
+		await audit(locals.user, 'bank.cleanup', `${rows.length} movimenti${account ? ` (${account})` : ''}${from || to ? ` ${from}–${to}` : ''}`, getClientAddress());
+		return { cleaned: `${rows.length} movimenti con tag Banca eliminati`, batch };
+	},
+	restoreCleanup: async ({ request, locals }) => {
+		const denied = requireAdmin(locals);
+		if (denied) return denied;
+		const n = await restoreBatch((await request.formData()).get('batch')?.toString() || '');
+		return n ? { synced: `${n} movimenti ripristinati` } : fail(404, { error: 'Nulla da ripristinare (già ripristinato o scaduto)' });
 	},
 	setAccount: async ({ request, locals }) => {
 		const denied = requireAdmin(locals);

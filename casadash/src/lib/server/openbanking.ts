@@ -271,18 +271,20 @@ export async function disconnect(id: number) {
 // Reading movements
 // ---------------------------------------------------------------------------------------------
 
-async function fetchMovements(conn: typeof bankConnections.$inferSelect): Promise<MappedMovement[]> {
-	const from = syncFrom(conn.lastSync);
+/** Booked movements of one account between two dates (the end defaults to today), as the bank reports them. */
+async function fetchMovements(conn: typeof bankConnections.$inferSelect, range: { from?: string; to?: string } = {}): Promise<{ movements: MappedMovement[]; from: string }> {
+	const from = range.from || syncFrom(conn.lastSync);
 	if (conn.provider === 'gocardless') {
-		const body = await gc<{ transactions: { booked: BankTransaction[] } }>(`/accounts/${conn.accountId}/transactions/?date_from=${from}`);
-		return (body.transactions?.booked || []).map(mapBankTransaction).filter((m): m is MappedMovement => !!m);
+		const to = range.to ? `&date_to=${range.to}` : '';
+		const body = await gc<{ transactions: { booked: BankTransaction[] } }>(`/accounts/${conn.accountId}/transactions/?date_from=${from}${to}`);
+		return { movements: (body.transactions?.booked || []).map(mapBankTransaction).filter((m): m is MappedMovement => !!m), from };
 	}
 
 	// Some banks (Poste among them) refuse a window as wide as the one asked for: narrow it step by step
 	let lastError: Error | null = null;
 	for (const start of periodLadder(from)) {
 		try {
-			return await fetchEnableBanking(conn.accountId as string, start);
+			return { movements: await fetchEnableBanking(conn.accountId as string, start, range.to), from: start };
 		} catch (e) {
 			if (!isPeriodError((e as Error).message)) throw e;
 			lastError = e as Error;
@@ -291,11 +293,12 @@ async function fetchMovements(conn: typeof bankConnections.$inferSelect): Promis
 	throw lastError ?? new Error('Periodo non accettato dalla banca');
 }
 
-async function fetchEnableBanking(accountId: string, from: string): Promise<MappedMovement[]> {
+async function fetchEnableBanking(accountId: string, from: string, to?: string): Promise<MappedMovement[]> {
 	const out: MappedMovement[] = [];
 	let continuation: string | undefined;
 	for (let page = 0; page < 20; page++) {
 		const params = new URLSearchParams({ date_from: from, transaction_status: 'BOOK' });
+		if (to) params.set('date_to', to);
 		if (continuation) params.set('continuation_key', continuation);
 		const res = await eb<{ transactions?: EnableBankingTransaction[]; continuation_key?: string | null }>(`/accounts/${accountId}/transactions?${params}`);
 		for (const t of res.transactions ?? []) {
@@ -306,6 +309,23 @@ async function fetchEnableBanking(accountId: string, from: string): Promise<Mapp
 		if (!continuation) break;
 	}
 	return out;
+}
+
+/** For the Import page: reads a period of a linked account without storing anything. */
+export async function readRange(connectionId: number, from: string, to: string) {
+	const [conn] = await db.select().from(bankConnections).where(eq(bankConnections.id, connectionId)).limit(1);
+	if (!conn || !conn.accountId) throw new Error('Conto non collegato');
+	if (conn.status !== 'linked') throw new Error('Il collegamento non è attivo: rinnova il consenso dalla pagina Banche');
+	try {
+		const { movements, from: effectiveFrom } = await fetchMovements(conn, { from, to });
+		await db.update(bankConnections).set({ lastError: null }).where(eq(bankConnections.id, conn.id));
+		return { connection: conn, movements, from: effectiveFrom };
+	} catch (e) {
+		const message = (e as Error).message;
+		const expired = /HTTP (401|403)/.test(message) || /EXPIRED_SESSION/.test(message);
+		await db.update(bankConnections).set({ lastError: message.slice(0, 200), status: expired ? 'expired' : conn.status }).where(eq(bankConnections.id, conn.id));
+		throw e;
+	}
 }
 
 /**
@@ -322,7 +342,7 @@ export function movementValues(m: MappedMovement, accountTag: string, createdBy:
 		type, description: m.description, amount: Math.abs(m.amount), date: m.date,
 		category: rule?.category || 'Altro', paymentMethod: 'bancomat',
 		tags: JSON.stringify([...new Set(tags)]), settled: 1,
-		importBatch: batch, externalId: m.externalId, createdBy
+		importBatch: batch, externalId: m.externalId, bookingDate: m.bookingDate ?? null, valueDate: m.valueDate ?? null, createdBy
 	};
 }
 
@@ -335,14 +355,14 @@ export async function syncConnection(id: number, manual = false): Promise<{ adde
 	}
 
 	try {
-		const mapped = await fetchMovements(conn);
+		const { movements: mapped } = await fetchMovements(conn);
 
 		const rules = await loadActiveRules();
 		const batch = `bank-${Date.now().toString(36)}`;
 
 		// Compared with everything registered around those dates, whatever its source (file import, PayPal, manual):
 		// identical movements are skipped, look-alikes wait for the user's decision instead of being added or lost
-		const dates = mapped.map((m) => m.date).sort();
+		const dates = mapped.flatMap((m) => [m.date, ...(m.altDates ?? [])]).sort();
 		const index = dates.length ? indexKnown(await knownBetween(dates[0], dates[dates.length - 1])) : new Map();
 
 		const values: (typeof transactions.$inferInsert)[] = [];
@@ -351,7 +371,7 @@ export async function syncConnection(id: number, manual = false): Promise<{ adde
 		for (const m of mapped) {
 			if (await isKnownOrQueued(m.externalId)) { skipped++; continue; }
 			const type = m.amount < 0 ? 'expense' : 'income';
-			const found = findSimilarIndexed({ date: m.date, amount: Math.abs(m.amount), type, description: m.description, paymentMethod: 'bancomat', tags: [conn.accountTag], externalId: m.externalId }, index);
+			const found = findSimilarIndexed({ date: m.date, amount: Math.abs(m.amount), type, description: m.description, paymentMethod: 'bancomat', tags: [conn.accountTag], externalId: m.externalId, altDates: m.altDates }, index);
 			const level = worst(found);
 			if (level === 'exact') { skipped++; continue; }
 			if (level) {
@@ -375,10 +395,11 @@ export async function syncConnection(id: number, manual = false): Promise<{ adde
 	}
 }
 
-/** Hourly job: refreshes every linked account that has not been read in the last 8 hours. */
+/** Hourly job: refreshes every automatic account that has not been read in the last 8 hours. */
 export async function syncAllBankConnections() {
 	if (!(await hasAnyCredentials())) return;
-	const linked = (await db.select().from(bankConnections)).filter((c) => c.status === 'linked');
+	// Only accounts the user switched on: by default movements are brought in by hand from the Import page
+	const linked = (await db.select().from(bankConnections)).filter((c) => c.status === 'linked' && c.autoSync === 1);
 	for (const c of linked) {
 		if (!c.accountId || !c.accountTag) continue;
 		if (c.lastSync && Date.now() - new Date(c.lastSync).getTime() < AUTO_SYNC_EVERY) continue;

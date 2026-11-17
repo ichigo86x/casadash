@@ -14,9 +14,12 @@ export type Known = {
 	paymentMethod?: string;
 	tags?: string[];
 	externalId?: string | null;
+	/** Booking and value dates, when the movement came from a bank. */
+	altDates?: string[];
 };
 
 export type Candidate = {
+	altDates?: string[]; // other dates of the same movement (booking, value, date in the description)
 	date: string;
 	amount: number; // positive
 	type: string;
@@ -36,6 +39,14 @@ const NEAR_DAYS = 3;
 export const SEARCH_DAYS = NEAR_DAYS;
 
 const dayDiff = (a: string, b: string) => Math.round(Math.abs(Date.parse(a + 'T12:00:00Z') - Date.parse(b + 'T12:00:00Z')) / DAY);
+
+/** Smallest distance between any date of one movement and any date of the other: a purchase of the 13th
+ *  booked on the 17th matches a movement dated the 13th, whichever date each source chose. */
+function closest(a: string[], b: string[]): number {
+	let best = Infinity;
+	for (const x of a) for (const y of b) best = Math.min(best, dayDiff(x, y));
+	return best;
+}
 
 // Words that say how a payment was made, not what or where: they match almost everything
 const FILLER = new Set([
@@ -72,6 +83,7 @@ export function findSimilar(c: Candidate, known: Known[]): Match[] {
 	const key = descriptionKey(c.description);
 	const cWords = new Set(words(c.description));
 	const cRefs = new Set(references(c.description));
+	const cDates = [c.date, ...(c.altDates ?? [])];
 
 	for (const k of known) {
 		if (k.type !== c.type || Math.abs(k.amount - c.amount) >= 0.005) continue;
@@ -79,7 +91,7 @@ export function findSimilar(c: Candidate, known: Known[]): Match[] {
 			out.push({ known: k, level: 'exact', reason: 'stesso identificativo della banca' });
 			continue;
 		}
-		const gap = dayDiff(c.date, k.date);
+		const gap = closest(cDates, [k.date, ...(k.altDates ?? [])]);
 		if (gap > NEAR_DAYS) continue;
 
 		const sameDescription = descriptionKey(k.description) === key;
@@ -109,7 +121,7 @@ export function findSimilar(c: Candidate, known: Known[]): Match[] {
 		}
 	}
 	const rank = { exact: 0, strong: 1, probable: 2 } as const;
-	return out.sort((a, b) => rank[a.level] - rank[b.level] || dayDiff(c.date, a.known.date) - dayDiff(c.date, b.known.date));
+	return out.sort((a, b) => rank[a.level] - rank[b.level] || closest(cDates, [a.known.date, ...(a.known.altDates ?? [])]) - closest(cDates, [b.known.date, ...(b.known.altDates ?? [])]));
 }
 
 export function worst(matches: Match[]): Level | null {

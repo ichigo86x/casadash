@@ -280,6 +280,11 @@ addColumn('transactions', 'orig_amount', 'REAL');
 addColumn('transactions', 'orig_currency', 'TEXT');
 addColumn('transactions', 'fx_rate', 'REAL');
 addColumn('transactions', 'external_id', 'TEXT');
+// Dates a bank gives besides the day of the operation (kept so searches and duplicate checks can use them)
+addColumn('transactions', 'booking_date', 'TEXT');
+addColumn('transactions', 'value_date', 'TEXT');
+// Automatic reading of a linked account: off unless switched on (manual import from the Import page is the default)
+addColumn('bank_connections', 'auto_sync', 'INTEGER NOT NULL DEFAULT 0');
 db.prepare('CREATE INDEX IF NOT EXISTS transactions_external_idx ON transactions(external_id);').run();
 console.log("Checking for default admin user...");
 const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;

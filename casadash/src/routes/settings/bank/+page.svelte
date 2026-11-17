@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { base } from '$app/paths';
 	import '../../../app.css';
 
 	let { data, form } = $props();
@@ -17,6 +18,12 @@
 
 	{#if form?.error || data.error}
 		<div class="error-msg" style="background:var(--accent-red-glow); color:var(--accent-red); padding:12px; border-radius:8px; margin-bottom:20px;"><i class="fas fa-exclamation-circle"></i> {form?.error || data.error}</div>
+	{/if}
+	{#if form?.cleaned}
+		<div style="background:var(--accent-green-glow); color:var(--accent-green); padding:12px; border-radius:8px; margin-bottom:20px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+			<span><i class="fas fa-check-circle"></i> {form.cleaned}.</span>
+			<form method="POST" action="?/restoreCleanup" use:enhance style="margin:0;"><input type="hidden" name="batch" value={form.batch}><button style="text-decoration:underline; font-weight:700; background:none; border:none; color:inherit; cursor:pointer;"><i class="fas fa-undo"></i> Annulla</button></form>
+		</div>
 	{/if}
 	{#if form?.synced || data.message}
 		<div style="background:var(--accent-green-glow); color:var(--accent-green); padding:12px; border-radius:8px; margin-bottom:20px;"><i class="fas fa-check-circle"></i> {form?.synced || data.message}</div>
@@ -129,11 +136,19 @@
 									</select>
 								</form>
 							</td>
-							<td>{statusLabel[c.status] || c.status}{#if c.lastError}<br><small style="color:var(--accent-red);">{c.lastError}</small>{/if}</td>
+							<td>
+								{statusLabel[c.status] || c.status}{#if c.lastError}<br><small style="color:var(--accent-red);">{c.lastError}</small>{/if}
+								<form method="POST" action="?/toggleAuto" use:enhance style="margin:4px 0 0;">
+									<input type="hidden" name="id" value={c.id}>
+									<button class="chip-btn" title="Quando è accesa CasaDash legge il conto da sola ogni 8 ore; spenta, importi tu i movimenti dalla pagina Importa">
+										<i class="fas fa-{c.autoSync ? 'toggle-on' : 'toggle-off'}"></i> Lettura automatica: {c.autoSync ? 'accesa' : 'spenta'}
+									</button>
+								</form>
+							</td>
 							<td>{c.lastSync ? new Date(c.lastSync).toLocaleString('it-IT') : '—'}</td>
 							<td style="white-space:nowrap;">
 								{#if c.status === 'linked'}
-									<form method="POST" action="?/sync" use:enhance class="inline"><input type="hidden" name="id" value={c.id}><button class="edit-btn" title="Sincronizza ora"><i class="fas fa-sync-alt"></i></button></form>
+									<a class="edit-btn" href="{base}/import?bank={c.id}" title="Importa movimenti da questa banca, scegliendo le date" style="text-decoration:none; display:inline-block;"><i class="fas fa-file-import"></i></a>
 								{/if}
 								<form method="POST" action="?/disconnect" use:enhance={({ cancel }) => { if (!confirm('Scollegare questo conto? I movimenti già importati restano.')) cancel(); }} class="inline">
 									<input type="hidden" name="id" value={c.id}><button class="delete-btn" title="Scollega"><i class="fas fa-unlink"></i></button>
@@ -144,7 +159,26 @@
 				</tbody>
 			</table>
 		</div>
-		<p class="month-note">I movimenti si aggiornano da soli ogni 8 ore (le banche consentono poche letture al giorno), con le regole automatiche applicate e senza doppioni con le importazioni da file. Il tag <code>Banca</code> li contrassegna. Con Enable Banking il consenso dura fino a 180 giorni, poi va rinnovato.</p>
+		<p class="month-note">Per avere più controllo i movimenti si importano <strong>a mano</strong> dalla pagina <a href="{base}/import">Importa</a> (pulsante con la freccia), scegliendo le date e vedendo l'anteprima con i doppioni. Se vuoi, la <em>lettura automatica</em> di un conto porta i nuovi movimenti ogni 8 ore (le banche consentono poche letture al giorno); quelli dubbi restano in <a href="{base}/conflicts">Possibili doppioni</a>. Il tag <code>Banca</code> li contrassegna. Con Enable Banking il consenso dura fino a 180 giorni, poi va rinnovato.</p>
 	</div>
 	{/if}
+
+	<div class="form-section" style="margin-top:24px;">
+		<h2><i class="fas fa-broom"></i> Pulizia dei movimenti «Banca»</h2>
+		<p style="color:var(--text-muted); margin-top:0;">
+			Elimina i movimenti che hanno il tag <code>Banca</code> (ora <strong>{data.bankMovements}</strong>), tutti oppure solo di un conto o di un periodo.
+			Si possono recuperare per 30 giorni con <em>Annulla</em> nel messaggio di conferma. I movimenti importati da file o inseriti a mano non vengono toccati.
+		</p>
+		<form method="POST" action="?/cleanup" use:enhance={({ cancel }) => { if (!confirm('Eliminare i movimenti con tag Banca selezionati?')) cancel(); }} style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+			<div class="form-group" style="margin:0;"><label for="cl-account">Conto</label>
+				<select id="cl-account" name="account"><option value="">Tutti</option>{#each data.accountTags as t}<option value={t}>{t}</option>{/each}</select></div>
+			<div class="form-group" style="margin:0;"><label for="cl-from">Dal</label><input type="date" id="cl-from" name="from"></div>
+			<div class="form-group" style="margin:0;"><label for="cl-to">Al</label><input type="date" id="cl-to" name="to"></div>
+			<button class="btn-submit btn-auto" style="background:var(--accent-red);" disabled={data.bankMovements === 0}><i class="fas fa-trash-alt"></i> Elimina</button>
+		</form>
+	</div>
 </div>
+
+<style>
+	.chip-btn { font-size:0.75rem; background:none; border:1px solid var(--border-color); border-radius:12px; padding:2px 8px; cursor:pointer; color:var(--text-muted); }
+</style>

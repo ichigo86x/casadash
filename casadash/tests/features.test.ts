@@ -159,3 +159,36 @@ describe('history window', () => {
 		expect(isPeriodError('Errore della banca (HTTP 422) {"message":"other"}')).toBe(false);
 	});
 });
+
+import { dateInDescription, resolveDates } from '../src/lib/openbanking';
+import { findSimilar } from '../src/lib/duplicates';
+
+describe('dates of a bank movement', () => {
+	it('finds the day of the operation written in the description', () => {
+		expect(dateInDescription('PAGAMENTO POS 13/11/2026 ESSELUNGA', '2026-11-17')).toBe('2026-11-13');
+		expect(dateInDescription('ACQUISTO CARTA DEL 13/11 NEGOZIO', '2026-11-17')).toBe('2026-11-13');
+		expect(dateInDescription('POS 13-11-26 BAR', '2026-11-17')).toBe('2026-11-13');
+	});
+	it('takes the previous year when the day is in the future of the booking', () => {
+		expect(dateInDescription('POS 28/12 NEGOZIO', '2027-01-03')).toBe('2026-12-28');
+	});
+	it('ignores amounts, times, far dates and impossible days', () => {
+		expect(dateInDescription('COMMISSIONE 12.05 EUR', '2026-11-17')).toBeNull();
+		expect(dateInDescription('ORE 18.45 POS', '2026-11-17')).toBeNull();
+		expect(dateInDescription('POS 13/09/2026 NEGOZIO', '2026-11-17')).toBeNull();
+		expect(dateInDescription('POS 31/02 NEGOZIO', '2026-03-17')).toBeNull();
+	});
+	it('keeps the other dates as alternatives', () => {
+		const d = resolveDates({ booking: '2026-11-17', value: '2026-11-16', description: 'POS 13/11/2026 BAR' });
+		expect(d).toEqual({ date: '2026-11-13', bookingDate: '2026-11-17', valueDate: '2026-11-16', altDates: ['2026-11-17', '2026-11-16'] });
+		expect(resolveDates({ booking: '2026-11-17', description: 'Stipendio' })?.date).toBe('2026-11-17');
+		expect(resolveDates({ description: 'x' })).toBeNull();
+	});
+	it('a purchase of the 13th booked on the 17th is the same as one dated the 13th, or dated the 17th', () => {
+		const incoming = { date: '2026-11-13', altDates: ['2026-11-17'], amount: 20, type: 'expense', description: 'POS BAR ROMA' };
+		const known = (date: string, id: number) => ({ id, date, amount: 20, type: 'expense', description: 'Bar Roma' });
+		expect(findSimilar(incoming, [known('2026-11-17', 1)])[0]?.level).toBe('strong');
+		expect(findSimilar(incoming, [known('2026-11-13', 2)])[0]?.level).toBe('strong');
+		expect(findSimilar({ ...incoming, altDates: [] }, [known('2026-11-30', 3)])).toHaveLength(0);
+	});
+});

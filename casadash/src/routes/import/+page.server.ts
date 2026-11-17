@@ -9,6 +9,10 @@ import { TRANSFER_TAG } from '$lib/transfers';
 import { matchRule, ruleTags } from '$lib/rules';
 import { loadActiveRules } from '$lib/server/rules';
 import { audit } from '$lib/server/audit';
+import { requireAdmin } from '$lib/server/roles';
+import { readRange } from '$lib/server/openbanking';
+import { isValidDate } from '$lib/validate';
+import { bankConnections } from '$lib/server/db/schema';
 import { findSimilarIndexed, indexKnown, worst } from '$lib/duplicates';
 import { knownBetween, matchView, replaceMovement } from '$lib/server/duplicates';
 import type { Actions, PageServerLoad } from './$types';
@@ -17,15 +21,25 @@ import type { Actions, PageServerLoad } from './$types';
 const IMPORT_TAG = 'Importato';
 const MAX_ROWS = 5000;
 
-type IncomingRow = { date: string; description: string; amount: number };
+// Rows read from the bank also carry its id and the other dates of the movement
+type IncomingRow = { date: string; description: string; amount: number; externalId?: string; altDates?: string[]; bookingDate?: string; valueDate?: string };
 // replaceId: the user chose to overwrite that existing movement instead of adding a new one
 type ImportRow = IncomingRow & { category: string; transfer?: boolean; tags?: string[]; replaceId?: number };
+
+const cleanDate = (d: unknown) => (typeof d === 'string' && parseDate(d) === d ? d : null);
+const cleanDates = (v: unknown) => (Array.isArray(v) ? v.map(cleanDate).filter((d): d is string => !!d).slice(0, 6) : []);
 type ImportRecord = { batch: string; at: string; count: number; account: string; user: string; file: string; undone?: boolean };
 const HISTORY_SIZE = 20;
 
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async ({ locals, url }) => {
+	// Linked bank accounts: only administrators manage the bank link, so only they can read from it
+	const bankAccounts = locals.user?.role === 'admin'
+		? (await db.select().from(bankConnections)).filter((c) => c.status === 'linked' && c.accountId).map((c) => ({ id: c.id, name: c.institutionName, tag: c.accountTag || '' }))
+		: [];
 	const dbCategories = await db.select().from(categories).orderBy(categories.name);
 	return {
+		bankAccounts,
+		bankPreselect: parseInt(url.searchParams.get('bank') || '0') || 0,
 		accounts: await getSetting<string[]>('account_tags', []),
 		// Column mappings remembered per file layout (keyed by the header row)
 		profiles: await getSetting<Record<string, Mapping>>('import_profiles', {}),
@@ -91,7 +105,7 @@ export const actions: Actions = {
 
 		const activeRules = await loadActiveRules();
 
-		const dates = rows.map((r) => r.date).sort();
+		const dates = rows.flatMap((r) => [r.date, ...cleanDates(r.altDates)]).sort();
 		// What is already registered around these dates, from any source: other imports, the bank link, manual entries
 		const index = indexKnown(await knownBetween(dates[0], dates[dates.length - 1]));
 
@@ -99,7 +113,7 @@ export const actions: Actions = {
 			const type = r.amount < 0 ? 'expense' : 'income';
 			const key = descriptionKey(r.description);
 			const amount = Math.abs(r.amount);
-			const found = findSimilarIndexed({ date: r.date, amount, type, description: r.description, paymentMethod: previewPayment || undefined, tags: previewAccount ? [previewAccount] : [] }, index);
+			const found = findSimilarIndexed({ date: r.date, amount, type, description: r.description, paymentMethod: previewPayment || undefined, tags: previewAccount ? [previewAccount] : [], externalId: typeof r.externalId === 'string' ? r.externalId : undefined, altDates: cleanDates(r.altDates) }, index);
 			// A matching rule wins over the history of similar descriptions
 			const rule = matchRule(activeRules, r.description, type);
 			const fromHistory = byKey.get(`${type}|${key}`) || byShortKey.get(`${type}|${shortKey(key)}`) || null;
@@ -116,6 +130,28 @@ export const actions: Actions = {
 			};
 		});
 		return { suggestions };
+	},
+
+	// Reads a period of a linked account (nothing is stored): the rows go through the same preview as a file
+	bankFetch: async ({ request, locals }) => {
+		const denied = requireAdmin(locals);
+		if (denied) return denied;
+		const data = await request.formData();
+		const id = parseInt(data.get('id')?.toString() || '0');
+		const from = data.get('from')?.toString() || '';
+		const to = data.get('to')?.toString() || '';
+		if (!id) return fail(400, { error: 'Scegli un conto' });
+		if (!isValidDate(from) || !isValidDate(to) || from > to) return fail(400, { error: 'Periodo non valido' });
+		if ((Date.parse(to) - Date.parse(from)) / 86400000 > 400) return fail(400, { error: 'Periodo troppo lungo (massimo 400 giorni)' });
+		try {
+			const { connection, movements, from: effectiveFrom } = await readRange(id, from, to);
+			const rows = movements
+				.sort((a, b) => b.date.localeCompare(a.date))
+				.map((m, i) => ({ line: i + 1, date: m.date, description: m.description, amount: m.amount, externalId: m.externalId, bookingDate: m.bookingDate, valueDate: m.valueDate, altDates: m.altDates ?? [] }));
+			return { bank: { rows, institution: connection.institutionName, account: connection.accountTag || '', from: effectiveFrom, requestedFrom: from } };
+		} catch (e) {
+			return fail(502, { error: (e as Error).message });
+		}
 	},
 
 	import: async ({ request, locals }) => {
@@ -142,9 +178,11 @@ export const actions: Actions = {
 			if (await replaceMovement(r.replaceId as number, { description: String(r.description).slice(0, 500), amount: Math.round(Math.abs(r.amount) * 100) / 100, date: r.date, category: validCategories.has(r.category) ? r.category : undefined, tags })) replaced++;
 		}
 		const insertRows = rows.filter((r) => !replacing.includes(r));
+		const fromBank = data.get('source')?.toString() === 'bank';
 
 		const values = insertRows.map((r) => {
 			const tags = [IMPORT_TAG];
+			if (fromBank) tags.push('Banca');
 			if (account) tags.unshift(account);
 			for (const t of Array.isArray(r.tags) ? r.tags : []) {
 				const tag = String(t).trim().slice(0, 50);
@@ -161,6 +199,10 @@ export const actions: Actions = {
 				tags: JSON.stringify(tags),
 				settled,
 				importBatch: batch,
+				// Bank rows keep the bank's id (so the same movement is never imported twice) and its other dates
+				externalId: fromBank && typeof r.externalId === 'string' ? r.externalId.slice(0, 200) : null,
+				bookingDate: fromBank ? cleanDate(r.bookingDate) : null,
+				valueDate: fromBank ? cleanDate(r.valueDate) : null,
 				createdBy: locals.user!.id
 			};
 		});

@@ -55,7 +55,7 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
   - indicazione dell'utente della famiglia che ha registrato il movimento.
 - **Lista e ricerca:**
   - paginazione lato server, veloce anche con anni di dati;
-  - filtri per descrizione, categoria, tipo (entrata, uscita, trasferimento), metodo di pagamento, conto, importo, date e allegato;
+  - filtri per descrizione (anche nei tag), tag, categoria, tipo (entrata, uscita, trasferimento), metodo di pagamento, conto, importo, date e allegato;
   - i filtri restano nell'indirizzo della pagina, quindi sopravvivono al ricaricamento;
   - **modifiche in blocco**: seleziona più movimenti e cambia categoria (solo per i movimenti del tipo giusto), aggiungi o togli un tag, oppure eliminali.
 - **Prossimi 30 giorni:** i ricorrenti in arrivo, con il totale delle uscite previste.
@@ -88,66 +88,15 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 - *Leggi lo scontrino e compila*: riconoscimento del testo (Tesseract, italiano) nel browser. Motore e lingua sono serviti da CasaDash stessa (`static/ocr`, copiati da `scripts/copy-ocr.mjs`), senza servizi esterni. Propone esercente, totale e data: controlla sempre prima di salvare.
 
 ### Collegamento bancario (`/settings/bank`, solo amministratori)
-- Sincronizza i movimenti dal conto via **Open Banking PSD2**, in sola lettura. CasaDash non vede mai le credenziali bancarie; le chiavi API sono cifrate nel database.
+- Legge i movimenti dal conto via **Open Banking PSD2**, in sola lettura. CasaDash non vede mai le credenziali bancarie; le chiavi API sono cifrate nel database.
 - Due servizi:
   - **Enable Banking** (consigliato): gratuito per uso personale, per i propri conti. Si crea un'applicazione su enablebanking.com (ambiente *production*, indirizzo di reindirizzamento `https://enablebanking.com/`), la si attiva collegando i propri conti e si inseriscono in CasaDash l'Application ID e la chiave privata (.pem). Dopo il consenso sul sito della banca si arriva su una pagina di enablebanking.com: si incolla in CasaDash l'indirizzo completo (contiene `?code=…`). Consenso fino a 180 giorni.
   - **GoCardless Bank Account Data** (ex Nordigen): chiuso alle nuove registrazioni dal 2025; funziona con chiavi già esistenti.
-- Ogni conto della banca si abbina a un conto di CasaDash (tag). Ogni 8 ore (le banche consentono poche letture al giorno) arrivano i nuovi movimenti, con le regole automatiche applicate, il tag `Banca` e senza doppioni rispetto a importazioni da file.
+- **Importazione manuale, con più controllo (default):** in *Importa → Oppure leggi direttamente dalla banca* scegli il conto e le date; si apre l'anteprima con i possibili doppioni, come per un file, e importi solo ciò che scegli. Si può usare anche il pulsante con la freccia nella tabella dei conti collegati.
+- **Lettura automatica (facoltativa):** per ogni conto si accende o si spegne senza scollegarlo. Se accesa, ogni 8 ore arrivano i nuovi movimenti; quelli dubbi restano in *Possibili doppioni*.
+- **Pulizia:** in fondo alla pagina si eliminano i movimenti con il tag `Banca` (tutti, di un conto o di un periodo); si recuperano per 30 giorni con *Annulla*.
+- **Date:** un acquisto con carta può essere registrato dalla banca giorni dopo. Se la descrizione contiene la data dell'operazione (es. `POS 13/11/2026`) il movimento prende quella data; la data di registrazione e la data valuta restano salvate. La ricerca per periodo e il controllo dei doppioni considerano tutte e tre.
 - Non tutte le banche espongono tutto: carte di credito e PayPal spesso non sono disponibili; in quel caso resta l'importazione da file.
-
-### Regole automatiche (`/settings/rules`)
-- Formato: "se la descrizione contiene *testo* → categoria, tag aggiuntivi, trasferimento". Il confronto ignora maiuscole e accenti.
-- Ogni regola vale per le uscite, per le entrate o per entrambe. Ha una priorità e si può disattivare senza eliminarla.
-- Si applicano:
-  - mentre scrivi la descrizione di un nuovo movimento, finché non scegli la categoria a mano;
-  - nell'importazione, con precedenza sui suggerimenti presi dallo storico;
-  - ai movimenti esistenti, solo a quelli in *Altro* oppure a tutti. I tag vengono aggiunti, mai rimossi.
-
-### Conti e trasferimenti
-- I **conti** sono tag, ad esempio `BNL`, `Poste`, `Libretto`. Si elencano in *Categorie → Conti*.
-- Un movimento con il tag **`Trasferimento`** sposta soldi tra due conti della famiglia:
-  - cambia il saldo dei conti coinvolti;
-  - **non conta** come entrata o uscita in totali, grafici, budget, previsioni e report.
-- Per un giroconto, ad esempio da BNL al Libretto, registra:
-  - un'uscita con i tag `BNL` e `Trasferimento`;
-  - un'entrata con i tag `Libretto` e `Trasferimento`.
-- Il **saldo iniziale** di un conto si registra come entrata con il tag del conto e `Trasferimento`.
-
-### Report (`/reports`)
-- Filtri per **intervallo di date**, **mese** o **anno**.
-- Filtri aggiuntivi:
-  - metodo di pagamento (conto/bancomat, carta di credito, contanti);
-  - tag multipli, quindi anche per conto;
-  - categoria;
-  - esclusione delle spese con carta di credito non saldate;
-  - presenza o assenza di ricevuta.
-- Riepilogo di entrate, uscite e saldo del periodo, con un riquadro separato per i trasferimenti.
-- **Confronto con lo stesso periodo dell'anno precedente**, sui totali e per ogni categoria di spesa.
-- Ripartizione per categoria (entrate e uscite separate) e ripartizione giornaliera, confrontate con i budget del periodo.
-- **Esportazione CSV** compatibile con Excel (separatore `;`, codifica UTF-8 con BOM, tag inclusi).
-- **Esportazione PDF** dalla stampa del browser, con un layout pulito senza menu e filtri.
-- **Patrimonio nel tempo:** saldo di ogni conto e totale a fine mese negli ultimi 24 mesi, con la variazione sui 12 mesi. È indipendente dai filtri.
-
-### Importazione dal conto corrente (`/import`)
-- Caricamento dell'export dei movimenti della banca in **CSV, Excel (`.xlsx`, `.xls`) o LibreOffice (`.ods`)**, primo foglio. Il file viene letto nel browser e solo le righe confermate arrivano al server.
-- Riconoscimento automatico, modificabile a mano:
-  - separatore (`;`, `,`, tabulazione) e codifica (UTF-8 o Windows-1252);
-  - riga di intestazione, anche dopo righe di preambolo con IBAN e periodo;
-  - colonne di data, descrizione e importo (una colonna con segno, oppure addebiti e accrediti separati);
-  - date `gg/mm/aaaa`, `gg-mm-aa`, `aaaa-mm-gg` e importi `1.234,56` o `1,234.56`.
-- Righe di saldo e intestazioni ripetute vengono scartate e mostrate a parte.
-- **Anteprima** prima dell'importazione:
-  - categoria suggerita dai movimenti con la stessa descrizione;
-  - doppioni rilevati (stessa data, importo e descrizione) ed esclusi in automatico;
-  - possibili doppioni segnalati (stessa data e importo);
-  - per ogni doppione, il movimento già registrato: si vede passando il mouse sull'etichetta o con un clic;
-  - descrizione modificabile con un clic direttamente nella lista;
-  - selezione riga per riga e marcatura dei giroconti come trasferimenti.
-- Di default importa solo le uscite. Le entrate si includono con un'opzione.
-- I movimenti ricevono il tag del conto scelto e il tag `Importato`, e si ritrovano con la ricerca.
-- La mappatura delle colonne viene ricordata per formato di file (impostazione `import_profiles`).
-- **Importazioni recenti** con file, conto, utente e numero di movimenti, e **Annulla** per eliminare in un colpo tutti i movimenti di un'importazione.
-  - **Modifica** per correggere un'importazione già fatta (tag, conto, categoria, metodo di pagamento) e **Vedi** per aprirne i movimenti nella lista.
 
 ### Doppioni tra fonti diverse
 Lo stesso pagamento può comparire due volte: un acquisto PayPal e il suo addebito sul conto, una spesa con carta e l'addebito mensile, un movimento digitato a mano e poi importato. CasaDash confronta ogni movimento nuovo con quelli già registrati, **da qualsiasi fonte** (altre importazioni, collegamento bancario, inserimento manuale), a parità di tipo e importo:

@@ -47,6 +47,7 @@ Verifica sempre con `npm run check` (0 errori attesi; i warning a11y esistenti s
 - Colonne/tabelle nuove: `seed.js` (blocco "added in 1.6.0" con `addColumn`) + `db/schema.ts`.
 - OCR: `scripts/copy-ocr.mjs` copia motore e lingua in `static/ocr` (gitignored) a ogni dev/build; `lib/ocr.ts` li carica da lì.
 - Doppioni: `lib/duplicates.ts` (puro, testato: `findSimilar`, livelli exact/strong/probable) + `lib/server/duplicates.ts`. Usato da inserimento manuale (`addTransaction`, `dup=keep|replace:ID`), preview/import e sync bancaria; i casi incerti della sync finiscono in coda (`lib/server/conflicts.ts`, pagina `/conflicts`).
+- Date bancarie: `date` = giorno dell'operazione (`resolveDates`, data letta dalla descrizione se plausibile); `booking_date`/`value_date` sono salvate a parte. Filtri per periodo e `findSimilar` (`altDates`) le considerano tutte. Lettura automatica per conto: `bank_connections.auto_sync` (default 0); import manuale: azione `bankFetch` della pagina Importa.
 - Open Banking: `lib/openbanking.ts` (puro, testato) + `lib/server/openbanking.ts` (Enable Banking e GoCardless; sync ogni 8 ore dal job orario). Enable Banking: JWT RS256 firmato con la chiave dell'app, redirect fisso `https://enablebanking.com/` e codice incollato dall'utente (`finishEnableBanking`).
 
 ## Rilascio
