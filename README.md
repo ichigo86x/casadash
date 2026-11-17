@@ -88,9 +88,12 @@ CasaDash è un'applicazione web self-hosted per la gestione del budget familiare
 - *Leggi lo scontrino e compila*: riconoscimento del testo (Tesseract, italiano) nel browser. Motore e lingua sono serviti da CasaDash stessa (`static/ocr`, copiati da `scripts/copy-ocr.mjs`), senza servizi esterni. Propone esercente, totale e data: controlla sempre prima di salvare.
 
 ### Collegamento bancario (`/settings/bank`, solo amministratori)
-- Sincronizza i movimenti dal conto via **Open Banking PSD2** (GoCardless Bank Account Data, sola lettura). Le chiavi API sono cifrate nel database; CasaDash non vede mai le credenziali bancarie.
-- Ogni conto della banca si abbina a un conto di CasaDash (tag). Ogni 8 ore (la banca consente poche letture al giorno) arrivano i nuovi movimenti, con le regole automatiche applicate, il tag `Banca` e senza doppioni rispetto a importazioni da file. Il consenso va rinnovato ogni 90 giorni.
-- Nota: GoCardless ha chiuso le nuove registrazioni nel 2025. Funziona con chiavi già esistenti; in alternativa resta l'importazione da file.
+- Sincronizza i movimenti dal conto via **Open Banking PSD2**, in sola lettura. CasaDash non vede mai le credenziali bancarie; le chiavi API sono cifrate nel database.
+- Due servizi:
+  - **Enable Banking** (consigliato): gratuito per uso personale, per i propri conti. Si crea un'applicazione su enablebanking.com (ambiente *production*, indirizzo di reindirizzamento `https://enablebanking.com/`), la si attiva collegando i propri conti e si inseriscono in CasaDash l'Application ID e la chiave privata (.pem). Dopo il consenso sul sito della banca si arriva su una pagina di enablebanking.com: si incolla in CasaDash l'indirizzo completo (contiene `?code=…`). Consenso fino a 180 giorni.
+  - **GoCardless Bank Account Data** (ex Nordigen): chiuso alle nuove registrazioni dal 2025; funziona con chiavi già esistenti.
+- Ogni conto della banca si abbina a un conto di CasaDash (tag). Ogni 8 ore (le banche consentono poche letture al giorno) arrivano i nuovi movimenti, con le regole automatiche applicate, il tag `Banca` e senza doppioni rispetto a importazioni da file.
+- Non tutte le banche espongono tutto: carte di credito e PayPal spesso non sono disponibili; in quel caso resta l'importazione da file.
 
 ### Regole automatiche (`/settings/rules`)
 - Formato: "se la descrizione contiene *testo* → categoria, tag aggiuntivi, trasferimento". Il confronto ignora maiuscole e accenti.

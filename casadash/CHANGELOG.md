@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.2
+
+- **Collegamento bancario con Enable Banking**, gratuito per uso personale (anche per Poste, BNL e altre banche italiane: la disponibilità si verifica cercando la banca nella pagina *Banche*). Accanto a GoCardless, che resta per chi ha già le chiavi.
+- Nella pagina *Banche* si sceglie il servizio; con Enable Banking, dopo il consenso, si incolla l'indirizzo della pagina d'arrivo per completare il collegamento.
+
 ## 1.6.1
 
 - **Modifica delle importazioni:** in *Importa → Importazioni recenti* il pulsante *Modifica* cambia in blocco tutti i movimenti di un'importazione (aggiungere o togliere un tag, assegnare il conto, cambiare categoria o metodo di pagamento). *Vedi* apre la lista con i soli movimenti di quell'importazione.

@@ -112,3 +112,34 @@ describe('open banking mapping', () => {
 		expect(syncFrom('2026-11-10T08:00:00Z', new Date('2026-11-16'))).toBe('2026-11-07');
 	});
 });
+
+import { extractAuthCode, mapEnableBankingTransaction, sessionAccounts } from '../src/lib/openbanking';
+
+describe('enable banking', () => {
+	it('signs debits negative and uses the creditor as counterparty', () => {
+		const m = mapEnableBankingTransaction({
+			entry_reference: 'E1', booking_date: '2026-11-04', status: 'BOOK', credit_debit_indicator: 'DBIT',
+			transaction_amount: { amount: '23.90', currency: 'EUR' }, creditor: { name: 'PAYPAL EUROPE' }, remittance_information: ['Pagamento', 'ordine 55']
+		});
+		expect(m).toMatchObject({ externalId: 'E1', date: '2026-11-04', amount: -23.9, description: 'PAYPAL EUROPE - Pagamento ordine 55' });
+	});
+	it('keeps credits positive and falls back to value date and note', () => {
+		const m = mapEnableBankingTransaction({ value_date: '2026-11-05', credit_debit_indicator: 'CRDT', transaction_amount: { amount: '1500.00' }, debtor: { name: 'ACME' }, note: 'Stipendio' });
+		expect(m?.amount).toBe(1500);
+		expect(m?.description).toBe('ACME - Stipendio');
+	});
+	it('skips rows without date or amount', () => {
+		expect(mapEnableBankingTransaction({ transaction_amount: { amount: '5' }, credit_debit_indicator: 'DBIT' })).toBeNull();
+		expect(mapEnableBankingTransaction({ booking_date: '2026-11-05', transaction_amount: { amount: '0' } })).toBeNull();
+	});
+	it('extracts the code from the pasted address or a bare code', () => {
+		expect(extractAuthCode('https://enablebanking.com/?state=abc&code=5f1c-AA_9.z#x')).toBe('5f1c-AA_9.z');
+		expect(extractAuthCode('  5f1c-AA_9.zzzz ')).toBe('5f1c-AA_9.zzzz');
+		expect(extractAuthCode('ciao')).toBeNull();
+		expect(extractAuthCode('')).toBeNull();
+	});
+	it('reads accounts in both session shapes', () => {
+		expect(sessionAccounts({ accounts: [{ uid: 'u1', account_id: { iban: 'IT60X0542811101000000123456' } }] })).toEqual([{ uid: 'u1', label: '…3456' }]);
+		expect(sessionAccounts({ accounts: ['u2'], accounts_data: [{ uid: 'u2', account_id: { iban: 'IT00AAAA1111' } }] })).toEqual([{ uid: 'u2', label: '…1111' }]);
+	});
+});
