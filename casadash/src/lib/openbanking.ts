@@ -102,6 +102,27 @@ export function sessionAccounts(session: { accounts?: unknown; accounts_data?: u
 	return out;
 }
 
+/**
+ * Start dates to try, widest first. Banks may refuse a history window they do not allow ("Wrong transactions
+ * period"): PSD2 limits unattended reads to the last 90 days, and some banks reject exactly 90 or less than that.
+ */
+export function periodLadder(from: string, today: Date = new Date()): string[] {
+	const days = [80, 60, 30, 14, 7];
+	const out = [from];
+	for (const d of days) {
+		const t = new Date(today);
+		t.setDate(t.getDate() - d);
+		const iso = t.toISOString().slice(0, 10);
+		if (iso > out[out.length - 1]) out.push(iso);
+	}
+	return out;
+}
+
+/** True for the error banks return when the requested history window is not allowed. */
+export function isPeriodError(message: string): boolean {
+	return /HTTP 422/.test(message) && /period/i.test(message);
+}
+
 /** Dates sent to the bank API: first sync goes back 90 days, later ones overlap by 3 days (late bookings). */
 export function syncFrom(lastSync: string | null, today: Date = new Date()): string {
 	const d = new Date(today);

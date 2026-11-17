@@ -11,7 +11,7 @@ import { findSimilarIndexed, indexKnown, worst } from '$lib/duplicates';
 import { knownBetween, matchView } from '$lib/server/duplicates';
 import { isKnownOrQueued, queueConflict } from '$lib/server/conflicts';
 import {
-	extractAuthCode, mapBankTransaction, mapEnableBankingTransaction, sessionAccounts, syncFrom,
+	extractAuthCode, isPeriodError, mapBankTransaction, mapEnableBankingTransaction, periodLadder, sessionAccounts, syncFrom,
 	type BankTransaction, type EnableBankingTransaction, type MappedMovement
 } from '$lib/openbanking';
 
@@ -126,7 +126,7 @@ async function request<T>(url: string, init: { method?: string; body?: unknown; 
 	if (res.status === 429) throw new Error('La banca ha limitato le richieste di oggi: riprova più tardi');
 	if (!res.ok) {
 		const detail = await res.text().catch(() => '');
-		throw new Error(`Errore della banca (HTTP ${res.status}) ${detail.slice(0, 160)}`);
+		throw new Error(`Errore della banca (HTTP ${res.status}) ${detail.slice(0, 400)}`);
 	}
 	return res.status === 204 ? ({} as T) : ((await res.json()) as T);
 }
@@ -278,12 +278,26 @@ async function fetchMovements(conn: typeof bankConnections.$inferSelect): Promis
 		return (body.transactions?.booked || []).map(mapBankTransaction).filter((m): m is MappedMovement => !!m);
 	}
 
+	// Some banks (Poste among them) refuse a window as wide as the one asked for: narrow it step by step
+	let lastError: Error | null = null;
+	for (const start of periodLadder(from)) {
+		try {
+			return await fetchEnableBanking(conn.accountId as string, start);
+		} catch (e) {
+			if (!isPeriodError((e as Error).message)) throw e;
+			lastError = e as Error;
+		}
+	}
+	throw lastError ?? new Error('Periodo non accettato dalla banca');
+}
+
+async function fetchEnableBanking(accountId: string, from: string): Promise<MappedMovement[]> {
 	const out: MappedMovement[] = [];
 	let continuation: string | undefined;
 	for (let page = 0; page < 20; page++) {
 		const params = new URLSearchParams({ date_from: from, transaction_status: 'BOOK' });
 		if (continuation) params.set('continuation_key', continuation);
-		const res = await eb<{ transactions?: EnableBankingTransaction[]; continuation_key?: string | null }>(`/accounts/${conn.accountId}/transactions?${params}`);
+		const res = await eb<{ transactions?: EnableBankingTransaction[]; continuation_key?: string | null }>(`/accounts/${accountId}/transactions?${params}`);
 		for (const t of res.transactions ?? []) {
 			const m = mapEnableBankingTransaction(t);
 			if (m) out.push(m);

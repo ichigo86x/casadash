@@ -143,3 +143,19 @@ describe('enable banking', () => {
 		expect(sessionAccounts({ accounts: ['u2'], accounts_data: [{ uid: 'u2', account_id: { iban: 'IT00AAAA1111' } }] })).toEqual([{ uid: 'u2', label: '…1111' }]);
 	});
 });
+
+import { isPeriodError, periodLadder } from '../src/lib/openbanking';
+
+describe('history window', () => {
+	it('narrows the requested period step by step', () => {
+		expect(periodLadder('2026-08-18', new Date('2026-11-16T10:00:00Z'))).toEqual(['2026-08-18', '2026-08-28', '2026-09-17', '2026-10-17', '2026-11-02', '2026-11-09']);
+	});
+	it('does not widen a short window', () => {
+		expect(periodLadder('2026-11-10', new Date('2026-11-16T10:00:00Z'))).toEqual(['2026-11-10']);
+	});
+	it('recognises the bank error about the period', () => {
+		expect(isPeriodError('Errore della banca (HTTP 422) {"message":"Wrong transactions period requested"}')).toBe(true);
+		expect(isPeriodError('Errore della banca (HTTP 401) EXPIRED_SESSION')).toBe(false);
+		expect(isPeriodError('Errore della banca (HTTP 422) {"message":"other"}')).toBe(false);
+	});
+});

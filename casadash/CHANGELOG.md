@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.4
+
+- **Collegamento bancario:** se la banca (ad esempio Poste) rifiuta il periodo richiesto ("Wrong transactions period requested"), CasaDash riprova da solo con finestre più brevi (80, 60, 30, 14, 7 giorni). Il messaggio d'errore della banca ora è mostrato più a lungo.
+
 ## 1.6.3
 
 - **Doppioni tra fonti diverse:** ogni movimento nuovo, inserito a mano, importato da file o arrivato dalla banca, viene confrontato con tutti quelli già registrati, anche con data diversa di qualche giorno, descrizione diversa o provenienza da un altro conto (PayPal, BancoPosta, carta di credito). Stesso riferimento di transazione, stesso esercente o stesso importo vicino nel tempo vengono segnalati.
